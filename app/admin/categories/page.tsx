@@ -1,0 +1,3 @@
+import Link from "next/link";
+import {supabase} from "@/lib/supabase";
+export default async function CategoriesAdmin(){const {data}=await supabase.from("categories").select("*").order("created_at");return <main className="min-h-screen bg-[#faf8f4] px-6 py-16"><div className="mx-auto max-w-6xl"><Link href="/admin">← Administration</Link><h1 className="mt-8 text-5xl font-black">Catégories</h1><div className="mt-10 rounded-3xl bg-white p-7">{(data||[]).map((c:any)=><div className="border-b py-4" key={c.id}><b>{c.name}</b><p className="text-sm text-neutral-500">{c.description||""}</p></div>)}</div></div></main>}

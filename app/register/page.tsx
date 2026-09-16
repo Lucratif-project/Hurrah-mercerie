@@ -1,0 +1,3 @@
+"use client";
+import Link from "next/link";
+export default function Register(){return <main className="grid min-h-screen place-items-center bg-[#faf8f4] px-6"><div className="w-full max-w-md rounded-3xl bg-white p-8 shadow"><Link href="/" className="font-bold">← Accueil</Link><h1 className="mt-8 text-4xl font-black">Administration</h1><p className="mt-4 text-neutral-600">La gestion des administrateurs doit être reliée à ton système d'authentification Supabase avant la mise en production.</p><Link href="/admin" className="mt-8 block rounded-full bg-neutral-950 py-4 text-center font-bold text-white">Accéder à l'administration</Link></div></main>}

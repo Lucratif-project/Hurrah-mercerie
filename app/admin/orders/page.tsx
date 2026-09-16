@@ -1,0 +1,4 @@
+import Link from "next/link";
+import {supabase} from "@/lib/supabase";
+import {formatPrice} from "@/lib/format";
+export default async function Orders(){const {data}=await supabase.from("orders").select("*").order("created_at",{ascending:false});return <main className="min-h-screen bg-[#faf8f4] px-6 py-16"><div className="mx-auto max-w-6xl"><Link href="/admin">← Administration</Link><h1 className="mt-8 text-5xl font-black">Commandes</h1><div className="mt-10 space-y-4">{(data||[]).map((o:any)=><div key={o.id} className="rounded-3xl bg-white p-6"><div className="flex justify-between gap-4"><b>{o.customer_name}</b><b className="text-orange-600">{formatPrice(o.total)}</b></div><p className="mt-2 text-sm text-neutral-500">{o.customer_phone} · {o.status}</p></div>)}{!data?.length&&<div className="rounded-3xl bg-white p-8">Aucune commande.</div>}</div></div></main>}

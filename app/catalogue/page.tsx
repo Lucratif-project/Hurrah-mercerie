@@ -1,0 +1,204 @@
+import Link from "next/link";
+import SiteHeader from "@/components/SiteHeader";
+import SiteFooter from "@/components/SiteFooter";
+import ProductCard from "@/components/ProductCard";
+import { supabase } from "@/lib/supabase";
+
+const categories = [
+  {
+    name: "Fils & Laines",
+    image: "/images/categories/fils.jpeg",
+  },
+  {
+    name: "Duchesse",
+    image: "/images/categories/duchesse.jpeg",
+  },
+  {
+    name: "Boutons",
+    image: "/images/categories/bouton.jpeg",
+  },
+];
+
+type Props = {
+  searchParams: Promise<{
+    categorie?: string;
+  }>;
+};
+
+export default async function CataloguePage({ searchParams }: Props) {
+  const params = await searchParams;
+  const selectedCategory = params.categorie || "Toutes";
+
+  let query = supabase
+    .from("products")
+    .select("*, product_images(image_url, display_order)")
+    .eq("status", "published")
+    .order("created_at", { ascending: false });
+
+  if (selectedCategory !== "Toutes") {
+    const { data: category } = await supabase
+      .from("categories")
+      .select("id")
+      .eq("name", selectedCategory)
+      .maybeSingle();
+
+    if (category) {
+      query = query.eq("category_id", category.id);
+    } else {
+      query = query.eq(
+        "category_id",
+        "00000000-0000-0000-0000-000000000000"
+      );
+    }
+  }
+
+  const { data } = await query;
+
+  const products = (data || []).map((product: any) => ({
+    ...product,
+    image_url:
+      product.product_images
+        ?.sort(
+          (a: any, b: any) =>
+            (a.display_order || 0) - (b.display_order || 0)
+        )[0]?.image_url || null,
+  }));
+
+  return (
+    <>
+      <SiteHeader />
+
+      <main className="min-h-screen bg-[#faf8f4] px-6 py-16">
+        <div className="mx-auto max-w-7xl">
+          <p className="text-sm font-bold uppercase tracking-[0.25em] text-orange-600">
+            Hurrah Mercerie
+          </p>
+
+          <h1 className="mt-3 text-5xl font-black">
+            Notre catalogue
+          </h1>
+
+          <p className="mt-4 max-w-2xl text-neutral-600">
+            Découvrez nos machines, fils, tissus, boutons et accessoires.
+          </p>
+
+          {/* FILTRES */}
+          <section className="mt-12">
+            <h2 className="text-2xl font-black">
+              Explorer par catégorie
+            </h2>
+
+            <div className="mt-6 flex flex-wrap gap-3">
+              <Link
+                href="/catalogue"
+                className={`rounded-full px-5 py-3 text-sm font-bold transition ${
+                  selectedCategory === "Toutes"
+                    ? "bg-neutral-950 text-white"
+                    : "bg-white hover:bg-neutral-950 hover:text-white"
+                }`}
+              >
+                Tous les produits
+              </Link>
+
+              {categories.map((category) => (
+                <Link
+                  key={category.name}
+                  href={`/catalogue?categorie=${encodeURIComponent(
+                    category.name
+                  )}`}
+                  className={`rounded-full px-5 py-3 text-sm font-bold transition ${
+                    selectedCategory === category.name
+                      ? "bg-orange-600 text-white"
+                      : "bg-white hover:bg-orange-600 hover:text-white"
+                  }`}
+                >
+                  {category.name}
+                </Link>
+              ))}
+            </div>
+          </section>
+
+          {/* CATÉGORIES : UNIQUEMENT POUR "TOUS" */}
+          {selectedCategory === "Toutes" && (
+            <section className="mt-12">
+              <h2 className="text-2xl font-black">
+                Nos catégories
+              </h2>
+
+              <div className="mt-6 grid gap-6 md:grid-cols-3">
+                {categories.map((category) => (
+                  <Link
+                    key={category.name}
+                    href={`/catalogue?categorie=${encodeURIComponent(
+                      category.name
+                    )}`}
+                    className="group overflow-hidden rounded-3xl bg-white shadow-sm transition hover:-translate-y-1 hover:shadow-xl"
+                  >
+                    <img
+                      src={category.image}
+                      alt={category.name}
+                      className="h-64 w-full object-cover transition duration-300 group-hover:scale-105"
+                    />
+
+                    <div className="p-6">
+                      <h3 className="text-2xl font-black">
+                        {category.name}
+                      </h3>
+
+                      <p className="mt-3 font-semibold text-orange-600">
+                        Découvrir →
+                      </p>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* PRODUITS FILTRÉS */}
+          <section className="mt-16">
+            <p className="text-sm font-bold uppercase tracking-[0.2em] text-orange-600">
+              {selectedCategory === "Toutes"
+                ? "Tous nos produits"
+                : selectedCategory}
+            </p>
+
+            <h2 className="mt-2 text-3xl font-black">
+              {selectedCategory === "Toutes"
+                ? "Découvrez nos produits"
+                : `Produits ${selectedCategory}`}
+            </h2>
+
+            {products.length ? (
+              <div className="mt-8 grid gap-7 sm:grid-cols-2 lg:grid-cols-3">
+                {products.map((product: any) => (
+                  <ProductCard
+                    key={product.id}
+                    product={product}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="mt-8 rounded-3xl bg-white p-10 text-center">
+                <p className="font-semibold text-neutral-600">
+                  Aucun produit publié dans cette catégorie pour le moment.
+                </p>
+
+                {selectedCategory !== "Toutes" && (
+                  <Link
+                    href="/catalogue"
+                    className="mt-5 inline-block rounded-full bg-neutral-950 px-6 py-3 text-sm font-bold text-white"
+                  >
+                    Voir tous les produits
+                  </Link>
+                )}
+              </div>
+            )}
+          </section>
+        </div>
+      </main>
+
+      <SiteFooter />
+    </>
+  );
+}
