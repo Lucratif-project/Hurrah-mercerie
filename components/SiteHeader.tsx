@@ -1,4 +1,5 @@
 import Link from "next/link";
+import CartButton from "./CartButton";
 
 export default function SiteHeader() {
   return (
@@ -19,13 +20,27 @@ export default function SiteHeader() {
           <nav className="hidden items-center gap-7 text-sm font-semibold md:flex">
             <Link href="/">Accueil</Link>
             <Link href="/catalogue">Catalogue</Link>
+            <Link href="/kits">Kits</Link>
             <Link href="/machines">Machines</Link>
+            <Link href="/blog">Conseils</Link>
             <Link href="/a-propos">À propos</Link>
             <Link href="/contact">Contact</Link>
           </nav>
           <div className="flex items-center gap-3">
+            <Link
+              href="/favoris"
+              className="hidden rounded-full border px-4 py-2 text-sm font-bold sm:block"
+            >
+              Favoris
+            </Link>
+            <Link
+              href="/suivi"
+              className="hidden rounded-full border px-4 py-2 text-sm font-bold lg:block"
+            >
+              Suivi commande
+            </Link>
             <Link href="/panier" className="rounded-full border px-4 py-2 text-sm font-bold">
-              Panier
+              <CartButton />
             </Link>
             <Link href="/catalogue" className="hidden rounded-full bg-neutral-950 px-5 py-3 text-sm font-bold text-white sm:block">
               Découvrir

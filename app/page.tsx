@@ -2,11 +2,14 @@ import Image from "next/image";
 import Link from "next/link";
 import SiteHeader from "@/components/SiteHeader";
 import SiteFooter from "@/components/SiteFooter";
+import SocialGallery from "@/components/SocialGallery";
+import ProductCard from "@/components/ProductCard";
+import { supabase } from "@/lib/supabase";
 
 const categories = [
-  { name: "Fils & Laines", image: "/images/categories/fils.jpeg", href: "/categories/fils", description: "Fils et laines pour vos différents projets." },
-  { name: "Duchesse", image: "/images/categories/duchesse.jpeg", href: "/categories/duchesse", description: "Découvrez notre sélection de tissus duchesse." },
-  { name: "Boutons", image: "/images/categories/bouton.jpeg", href: "/categories/boutons", description: "Différents boutons et accessoires." },
+  { name: "Fils & Laines", image: "/images/categories/fils.jpeg", href: "/catalogue?categorie=Fils%20%26%20Laines", description: "Fils et laines pour vos différents projets." },
+  { name: "Duchesse", image: "/images/categories/duchesse.jpeg", href: "/catalogue?categorie=Duchesse", description: "Découvrez notre sélection de tissus duchesse." },
+  { name: "Boutons", image: "/images/categories/bouton.jpeg", href: "/catalogue?categorie=Boutons", description: "Différents boutons et accessoires." },
 ];
 
 const machines = [
@@ -14,7 +17,24 @@ const machines = [
   { name: "Machine à coudre Butterfly", description: "Une machine robuste adaptée aux travaux de couture intensifs.", image: "/images/machines/machine butterfly.jpeg", href: "/machines/butterfly", type: "Industrielle" },
 ];
 
-export default function Home() {
+export default async function Home() {
+  const { data: featuredData } = await supabase
+    .from("products")
+    .select("*, product_images(image_url, display_order)")
+    .eq("status", "published")
+    .eq("featured", true)
+    .order("created_at", { ascending: false })
+    .limit(6);
+
+  const featuredProducts = (featuredData || []).map((p: any) => ({
+    ...p,
+    image_url:
+      p.product_images
+        ?.sort(
+          (a: any, b: any) => (a.display_order || 0) - (b.display_order || 0)
+        )[0]?.image_url || null,
+  }));
+
   return (
     <main className="min-h-screen bg-[#faf8f4] text-neutral-900">
       <SiteHeader />
@@ -67,6 +87,24 @@ export default function Home() {
       <section className="bg-white px-6 py-24"><div className="mx-auto grid max-w-7xl gap-14 lg:grid-cols-2 lg:items-center"><div><p className="text-sm font-bold uppercase tracking-[0.25em] text-orange-600">À propos de Hurrah</p><h2 className="mt-4 text-4xl font-black tracking-tight sm:text-5xl">Une mercerie pensée pour les créateurs.</h2><p className="mt-7 leading-8 text-neutral-600">Hurrah Mercerie accompagne les passionnés de couture dans leurs projets en proposant des machines à coudre, des tissus, des fils et différents accessoires.</p><p className="mt-4 leading-8 text-neutral-600">Notre objectif est simple : rendre l'univers de la couture plus accessible et permettre à chacun de trouver facilement les produits nécessaires à ses créations.</p><Link href="/contact" className="mt-8 inline-flex rounded-full bg-orange-600 px-7 py-4 text-sm font-bold text-white hover:bg-neutral-950">Nous contacter</Link></div><div className="grid grid-cols-2 gap-5"><div className="rounded-[2rem] bg-[#f3eee7] p-8"><div className="text-4xl font-black">01</div><p className="mt-3 font-semibold">Machines</p></div><div className="mt-10 rounded-[2rem] bg-neutral-950 p-8 text-white"><div className="text-4xl font-black">02</div><p className="mt-3 font-semibold">Tissus & fils</p></div><div className="-mt-5 rounded-[2rem] bg-orange-600 p-8 text-white"><div className="text-4xl font-black">03</div><p className="mt-3 font-semibold">Accessoires</p></div><div className="rounded-[2rem] bg-[#eee8df] p-8"><div className="text-4xl font-black">04</div><p className="mt-3 font-semibold">Créativité</p></div></div></div></section>
 
       <section className="px-6 pb-24"><div className="mx-auto max-w-7xl rounded-[2.5rem] bg-orange-600 px-8 py-16 text-center text-white shadow-2xl sm:px-16"><p className="text-sm font-bold uppercase tracking-[0.25em] text-white/70">Hurrah Mercerie</p><h2 className="mx-auto mt-4 max-w-3xl text-4xl font-black sm:text-5xl">Prêt à donner vie à votre prochaine création ?</h2><p className="mx-auto mt-5 max-w-xl text-white/80">Explorez notre univers et découvrez les produits qui vous accompagneront dans vos projets.</p><Link href="/catalogue" className="mt-8 inline-flex rounded-full bg-white px-8 py-4 font-black text-neutral-950">Découvrir nos produits</Link></div></section>
+
+      {featuredProducts.length > 0 && (
+        <section className="bg-[#faf8f4] px-6 py-24">
+          <div className="mx-auto max-w-7xl">
+            <p className="text-sm font-bold uppercase tracking-[0.25em] text-orange-600">Sélection Hurrah</p>
+            <h2 className="mt-3 text-4xl font-black tracking-tight sm:text-5xl">Produits mis en avant</h2>
+
+            <div className="mt-12 grid gap-7 sm:grid-cols-2 lg:grid-cols-3">
+              {featuredProducts.map((product: any) => (
+                <ProductCard key={product.id} product={product} />
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
+
+      <SocialGallery />
+
       <SiteFooter />
     </main>
   );

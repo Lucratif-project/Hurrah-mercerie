@@ -1,0 +1,2 @@
+export const NO_IMAGE_PLACEHOLDER =
+  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 400'%3E%3Crect width='400' height='400' fill='%23f3eee7'/%3E%3Cg fill='none' stroke='%23d4c9b8' stroke-width='10' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='200' cy='150' r='55'/%3E%3Cpath d='M200 205v90M160 250h80M175 320c0-15 11-25 25-25s25 10 25 25'/%3E%3C/g%3E%3Ctext x='200' y='355' font-family='Arial, sans-serif' font-size='20' fill='%23b0a290' text-anchor='middle'%3EPhoto à venir%3C/text%3E%3C/svg%3E";

@@ -1,3 +1,44 @@
 import SiteHeader from "@/components/SiteHeader";
 import SiteFooter from "@/components/SiteFooter";
-export default function Contact(){return <><SiteHeader/><main className="min-h-screen bg-[#faf8f4] px-6 py-20"><div className="mx-auto max-w-3xl rounded-[2rem] bg-white p-8 shadow-sm"><h1 className="text-5xl font-black">Contact</h1><p className="mt-6 text-neutral-600">Pour toute demande concernant les produits, les machines ou une commande, contactez Hurrah Mercerie.</p><form className="mt-10 space-y-5"><input className="w-full rounded-2xl border px-5 py-4" placeholder="Votre nom"/><input className="w-full rounded-2xl border px-5 py-4" placeholder="Votre téléphone"/><textarea className="min-h-40 w-full rounded-2xl border px-5 py-4" placeholder="Votre message"/><button className="rounded-full bg-neutral-950 px-7 py-4 font-bold text-white">Envoyer</button></form></div></main><SiteFooter/></>}
+import ContactForm from "@/components/ContactForm";
+import { SITE_CONTACT } from "@/lib/site-config";
+
+export default function Contact() {
+  return (
+    <>
+      <SiteHeader />
+
+      <main className="min-h-screen bg-[#faf8f4] px-6 py-20">
+        <div className="mx-auto grid max-w-5xl gap-10 lg:grid-cols-[1fr_1.3fr]">
+          <div className="rounded-[2rem] bg-white p-8 shadow-sm">
+            <h1 className="text-4xl font-black">Contact</h1>
+
+            <p className="mt-5 text-sm leading-7 text-neutral-600">
+              Pour toute demande concernant les produits, les machines ou une
+              commande, contactez Hurrah Mercerie. Nous répondons rapidement
+              par WhatsApp.
+            </p>
+
+            <div className="mt-8 space-y-4 text-sm">
+              <div>
+                <p className="font-bold text-neutral-500">Téléphone / WhatsApp</p>
+                <p className="mt-1 font-black">{SITE_CONTACT.phoneDisplay}</p>
+              </div>
+
+              <div>
+                <p className="font-bold text-neutral-500">Adresse</p>
+                <p className="mt-1 font-black">{SITE_CONTACT.address}</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-[2rem] bg-white p-8 shadow-sm">
+            <ContactForm />
+          </div>
+        </div>
+      </main>
+
+      <SiteFooter />
+    </>
+  );
+}

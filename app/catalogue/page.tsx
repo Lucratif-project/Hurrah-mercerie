@@ -2,32 +2,34 @@ import Link from "next/link";
 import SiteHeader from "@/components/SiteHeader";
 import SiteFooter from "@/components/SiteFooter";
 import ProductCard from "@/components/ProductCard";
+import CatalogueFilters from "@/components/CatalogueFilters";
 import { supabase } from "@/lib/supabase";
 
-const categories = [
-  {
-    name: "Fils & Laines",
-    image: "/images/categories/fils.jpeg",
-  },
-  {
-    name: "Duchesse",
-    image: "/images/categories/duchesse.jpeg",
-  },
-  {
-    name: "Boutons",
-    image: "/images/categories/bouton.jpeg",
-  },
-];
+const FALLBACK_IMAGE = "/images/categories/fils.jpeg";
 
 type Props = {
   searchParams: Promise<{
     categorie?: string;
+    q?: string;
+    disponibilite?: string;
   }>;
 };
 
 export default async function CataloguePage({ searchParams }: Props) {
   const params = await searchParams;
   const selectedCategory = params.categorie || "Toutes";
+  const searchTerm = (params.q || "").trim();
+  const availability = params.disponibilite || "toutes";
+
+  const { data: categoriesData } = await supabase
+    .from("categories")
+    .select("name, image_url")
+    .order("name");
+
+  const categories = (categoriesData || []).map((c) => ({
+    name: c.name,
+    image: c.image_url || FALLBACK_IMAGE,
+  }));
 
   let query = supabase
     .from("products")
@@ -50,6 +52,19 @@ export default async function CataloguePage({ searchParams }: Props) {
         "00000000-0000-0000-0000-000000000000"
       );
     }
+  }
+
+  if (searchTerm) {
+    const escaped = searchTerm.replace(/[%,]/g, "");
+    query = query.or(
+      `name.ilike.%${escaped}%,description.ilike.%${escaped}%,reference.ilike.%${escaped}%`
+    );
+  }
+
+  if (availability === "disponible") {
+    query = query.gt("stock", 0);
+  } else if (availability === "rupture") {
+    query = query.lte("stock", 0);
   }
 
   const { data } = await query;
@@ -82,15 +97,30 @@ export default async function CataloguePage({ searchParams }: Props) {
             Découvrez nos machines, fils, tissus, boutons et accessoires.
           </p>
 
-          {/* FILTRES */}
-          <section className="mt-12">
+          {/* RECHERCHE + DISPONIBILITÉ */}
+          <CatalogueFilters
+            selectedCategory={selectedCategory}
+            searchTerm={searchTerm}
+            availability={availability}
+          />
+
+          {/* FILTRES CATÉGORIE */}
+          <section className="mt-8">
             <h2 className="text-2xl font-black">
               Explorer par catégorie
             </h2>
 
             <div className="mt-6 flex flex-wrap gap-3">
               <Link
-                href="/catalogue"
+                href={{
+                  pathname: "/catalogue",
+                  query: {
+                    ...(searchTerm ? { q: searchTerm } : {}),
+                    ...(availability !== "toutes"
+                      ? { disponibilite: availability }
+                      : {}),
+                  },
+                }}
                 className={`rounded-full px-5 py-3 text-sm font-bold transition ${
                   selectedCategory === "Toutes"
                     ? "bg-neutral-950 text-white"
@@ -103,9 +133,16 @@ export default async function CataloguePage({ searchParams }: Props) {
               {categories.map((category) => (
                 <Link
                   key={category.name}
-                  href={`/catalogue?categorie=${encodeURIComponent(
-                    category.name
-                  )}`}
+                  href={{
+                    pathname: "/catalogue",
+                    query: {
+                      categorie: category.name,
+                      ...(searchTerm ? { q: searchTerm } : {}),
+                      ...(availability !== "toutes"
+                        ? { disponibilite: availability }
+                        : {}),
+                    },
+                  }}
                   className={`rounded-full px-5 py-3 text-sm font-bold transition ${
                     selectedCategory === category.name
                       ? "bg-orange-600 text-white"
@@ -118,8 +155,8 @@ export default async function CataloguePage({ searchParams }: Props) {
             </div>
           </section>
 
-          {/* CATÉGORIES : UNIQUEMENT POUR "TOUS" */}
-          {selectedCategory === "Toutes" && (
+          {/* CATÉGORIES : UNIQUEMENT POUR "TOUS" SANS RECHERCHE */}
+          {selectedCategory === "Toutes" && !searchTerm && (
             <section className="mt-12">
               <h2 className="text-2xl font-black">
                 Nos catégories
@@ -163,11 +200,20 @@ export default async function CataloguePage({ searchParams }: Props) {
                 : selectedCategory}
             </p>
 
-            <h2 className="mt-2 text-3xl font-black">
-              {selectedCategory === "Toutes"
-                ? "Découvrez nos produits"
-                : `Produits ${selectedCategory}`}
-            </h2>
+            <div className="mt-2 flex flex-wrap items-end justify-between gap-3">
+              <h2 className="text-3xl font-black">
+                {searchTerm
+                  ? `Résultats pour "${searchTerm}"`
+                  : selectedCategory === "Toutes"
+                  ? "Découvrez nos produits"
+                  : `Produits ${selectedCategory}`}
+              </h2>
+
+              <p className="text-sm font-semibold text-neutral-500">
+                {products.length}{" "}
+                {products.length > 1 ? "résultats" : "résultat"}
+              </p>
+            </div>
 
             {products.length ? (
               <div className="mt-8 grid gap-7 sm:grid-cols-2 lg:grid-cols-3">
@@ -181,17 +227,17 @@ export default async function CataloguePage({ searchParams }: Props) {
             ) : (
               <div className="mt-8 rounded-3xl bg-white p-10 text-center">
                 <p className="font-semibold text-neutral-600">
-                  Aucun produit publié dans cette catégorie pour le moment.
+                  {searchTerm
+                    ? `Aucun produit ne correspond à "${searchTerm}".`
+                    : "Aucun produit publié dans cette catégorie pour le moment."}
                 </p>
 
-                {selectedCategory !== "Toutes" && (
-                  <Link
-                    href="/catalogue"
-                    className="mt-5 inline-block rounded-full bg-neutral-950 px-6 py-3 text-sm font-bold text-white"
-                  >
-                    Voir tous les produits
-                  </Link>
-                )}
+                <Link
+                  href="/catalogue"
+                  className="mt-5 inline-block rounded-full bg-neutral-950 px-6 py-3 text-sm font-bold text-white"
+                >
+                  Voir tous les produits
+                </Link>
               </div>
             )}
           </section>

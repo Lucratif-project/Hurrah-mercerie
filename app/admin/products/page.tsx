@@ -1,12 +1,11 @@
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
-import { formatPrice } from "@/lib/format";
 import ProductManager from "@/components/ProductManager";
 
 export default async function ProductsAdmin() {
   const { data: products } = await supabase
     .from("products")
-    .select("*")
+    .select("*, product_images(id, image_url, display_order)")
     .order("created_at", { ascending: false });
 
   const { data: categories } = await supabase
@@ -41,43 +40,6 @@ export default async function ProductsAdmin() {
             products={products || []}
             categories={categories || []}
           />
-        </div>
-
-        <div className="mt-12 overflow-hidden rounded-3xl bg-white shadow-sm">
-          <div className="border-b p-6">
-            <h2 className="text-2xl font-black">
-              Produits enregistrés
-            </h2>
-          </div>
-
-          {(products || []).length === 0 ? (
-            <p className="p-8 text-neutral-500">
-              Aucun produit pour le moment.
-            </p>
-          ) : (
-            <div>
-              {(products || []).map((product) => (
-                <div
-                  key={product.id}
-                  className="flex flex-wrap items-center justify-between gap-5 border-b p-6 last:border-b-0"
-                >
-                  <div>
-                    <h3 className="font-black">
-                      {product.name}
-                    </h3>
-
-                    <p className="mt-1 text-sm text-neutral-500">
-                      {product.status} · Stock : {product.stock}
-                    </p>
-                  </div>
-
-                  <p className="font-black text-orange-600">
-                    {formatPrice(product.price)}
-                  </p>
-                </div>
-              ))}
-            </div>
-          )}
         </div>
       </div>
     </main>

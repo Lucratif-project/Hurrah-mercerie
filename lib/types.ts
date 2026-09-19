@@ -14,6 +14,10 @@ export type Product = {
   category_id: string | null;
   featured: boolean;
   image_url?: string | null;
+  reference?: string | null;
+  color?: string | null;
+  size?: string | null;
+  format?: string | null;
 };
 
 export type CartItem = Product & { quantity: number };
