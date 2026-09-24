@@ -2,8 +2,10 @@
 
 import { useState } from "react";
 import type { Product } from "@/lib/types";
+import { useI18n } from "@/lib/i18n/client";
 
 export default function AddToCart({ product }: { product: Product }) {
+  const { t } = useI18n();
   const [done, setDone] = useState(false);
 
   function add() {
@@ -24,7 +26,7 @@ export default function AddToCart({ product }: { product: Product }) {
       disabled={product.stock <= 0}
       className="w-full rounded-full bg-neutral-950 px-5 py-3 text-sm font-bold text-white transition hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-40"
     >
-      {product.stock <= 0 ? "Rupture de stock" : done ? "Ajouté au panier ✓" : "Ajouter au panier"}
+      {product.stock <= 0 ? t.addToCart.out : done ? t.addToCart.added : t.addToCart.add}
     </button>
   );
 }

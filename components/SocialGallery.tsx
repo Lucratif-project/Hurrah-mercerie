@@ -1,6 +1,9 @@
 import { supabase } from "@/lib/supabase";
+import { getI18n } from "@/lib/i18n/server";
+import { tr } from "@/lib/i18n/localized";
 
 export default async function SocialGallery() {
+  const { t, locale } = await getI18n();
   const { data: posts } = await supabase
     .from("social_posts")
     .select("*")
@@ -13,24 +16,25 @@ export default async function SocialGallery() {
     <section className="px-6 py-16">
       <div className="mx-auto max-w-7xl">
         <p className="text-sm font-bold uppercase tracking-[0.25em] text-orange-600">
-          Nos créations
+          {t.social.eyebrow}
         </p>
         <h2 className="mt-2 text-3xl font-black">
-          Ce que nos clients réalisent
+          {t.social.title}
         </h2>
 
         <div className="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-4">
           {posts.map((post) => {
+            const caption = tr(post, "caption", locale);
             const content = (
               <div className="group relative aspect-square overflow-hidden rounded-2xl bg-neutral-100">
                 <img
                   src={post.image_url}
-                  alt={post.caption || "Création Hurrah Mercerie"}
+                  alt={caption || t.common.creationAlt}
                   className="h-full w-full object-cover transition duration-300 group-hover:scale-105"
                 />
-                {post.caption && (
+                {caption && (
                   <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-3 text-xs font-semibold text-white opacity-0 transition group-hover:opacity-100">
-                    {post.caption}
+                    {caption}
                   </div>
                 )}
               </div>

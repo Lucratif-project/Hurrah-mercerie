@@ -2,16 +2,20 @@ import SiteHeader from "@/components/SiteHeader";
 import SiteFooter from "@/components/SiteFooter";
 import { supabase } from "@/lib/supabase";
 import { formatPrice } from "@/lib/format";
+import { getI18n } from "@/lib/i18n/server";
+import { tr } from "@/lib/i18n/localized";
 
-export const metadata = {
-  title: "Kits couture",
-  description: "Nos kits prêts à l'emploi à prix groupé.",
-};
+export async function generateMetadata() {
+  const { t } = await getI18n();
+  return { title: t.kits.metaTitle, description: t.kits.metaDescription };
+}
 
 export default async function Kits() {
+  const { t, locale } = await getI18n();
+
   const { data: bundles } = await supabase
     .from("bundles")
-    .select("*, bundle_items(id, label)")
+    .select("*, bundle_items(*)")
     .eq("status", "published")
     .order("created_at", { ascending: false });
 
@@ -25,16 +29,15 @@ export default async function Kits() {
             Hurrah Mercerie
           </p>
 
-          <h1 className="mt-3 text-5xl font-black">Kits couture</h1>
+          <h1 className="mt-3 text-5xl font-black">{t.kits.title}</h1>
 
           <p className="mt-4 max-w-2xl text-neutral-600">
-            Des sélections prêtes à l'emploi, à prix groupé, pour bien
-            démarrer votre projet.
+            {t.kits.intro}
           </p>
 
           {!bundles || bundles.length === 0 ? (
             <div className="mt-12 rounded-3xl bg-white p-10 text-center text-neutral-500">
-              Aucun kit disponible pour le moment.
+              {t.kits.empty}
             </div>
           ) : (
             <div className="mt-12 grid gap-7 sm:grid-cols-2 lg:grid-cols-3">
@@ -46,30 +49,30 @@ export default async function Kits() {
                   <div className="h-56 bg-neutral-100">
                     <img
                       src={bundle.image_url || "/images/categories/fils.jpeg"}
-                      alt={bundle.name}
+                      alt={tr(bundle, "name", locale)}
                       className="h-full w-full object-cover"
                     />
                   </div>
 
                   <div className="p-6">
-                    <h2 className="text-xl font-black">{bundle.name}</h2>
+                    <h2 className="text-xl font-black">{tr(bundle, "name", locale)}</h2>
 
                     {bundle.description && (
                       <p className="mt-2 text-sm text-neutral-500">
-                        {bundle.description}
+                        {tr(bundle, "description", locale)}
                       </p>
                     )}
 
                     {bundle.bundle_items?.length > 0 && (
                       <ul className="mt-4 space-y-1 text-sm text-neutral-600">
                         {bundle.bundle_items.map((item: any) => (
-                          <li key={item.id}>• {item.label}</li>
+                          <li key={item.id}>• {tr(item, "label", locale)}</li>
                         ))}
                       </ul>
                     )}
 
                     <p className="mt-4 text-xl font-black text-orange-600">
-                      {formatPrice(bundle.price)}
+                      {formatPrice(bundle.price, locale)}
                     </p>
                   </div>
                 </div>

@@ -1,8 +1,10 @@
 "use client";
 
 import { useWishlist } from "@/lib/useWishlist";
+import { useI18n } from "@/lib/i18n/client";
 
 export default function WishlistButton({ productId }: { productId: string }) {
+  const { t } = useI18n();
   const { isFavorite, toggle } = useWishlist(productId);
 
   return (
@@ -13,7 +15,8 @@ export default function WishlistButton({ productId }: { productId: string }) {
         e.stopPropagation();
         toggle(productId);
       }}
-      aria-label="Ajouter aux favoris"
+      aria-label={isFavorite ? t.product.removeFromWishlist : t.product.addToWishlist}
+      aria-pressed={isFavorite}
       className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full transition ${
         isFavorite
           ? "bg-orange-600 text-white"

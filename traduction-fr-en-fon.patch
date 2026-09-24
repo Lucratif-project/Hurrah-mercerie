@@ -1,0 +1,4163 @@
+diff --git a/app/a-propos/page.tsx b/app/a-propos/page.tsx
+index 2c4df0c..a82ffc0 100644
+--- a/app/a-propos/page.tsx
++++ b/app/a-propos/page.tsx
+@@ -1,3 +1,9 @@
+ import SiteHeader from "@/components/SiteHeader";
+ import SiteFooter from "@/components/SiteFooter";
+-export default function About(){return <><SiteHeader/><main className="min-h-screen bg-white px-6 py-20"><div className="mx-auto max-w-4xl"><p className="text-sm font-bold uppercase tracking-[0.25em] text-orange-600">Hurrah Mercerie</p><h1 className="mt-3 text-5xl font-black">À propos de nous</h1><p className="mt-8 text-lg leading-8 text-neutral-600">Hurrah Mercerie accompagne les passionnés de couture avec des machines à coudre, tissus, fils et accessoires.</p><p className="mt-5 text-lg leading-8 text-neutral-600">Notre objectif est de rendre l'univers de la couture plus accessible et de proposer une expérience simple pour découvrir et commander les produits.</p></div></main><SiteFooter/></>}
++import { getI18n } from "@/lib/i18n/server";
++
++export default async function About() {
++  const { t } = await getI18n();
++
++  return <><SiteHeader/><main className="min-h-screen bg-white px-6 py-20"><div className="mx-auto max-w-4xl"><p className="text-sm font-bold uppercase tracking-[0.25em] text-orange-600">Hurrah Mercerie</p><h1 className="mt-3 text-5xl font-black">{t.about.title}</h1><p className="mt-8 text-lg leading-8 text-neutral-600">{t.about.text1}</p><p className="mt-5 text-lg leading-8 text-neutral-600">{t.about.text2}</p></div></main><SiteFooter/></>;
++}
+diff --git a/app/actions/locale.ts b/app/actions/locale.ts
+new file mode 100644
+index 0000000..fc188ee
+--- /dev/null
++++ b/app/actions/locale.ts
+@@ -0,0 +1,13 @@
++"use server";
++
++import { cookies } from "next/headers";
++import { LOCALE_COOKIE, normalizeLocale } from "@/lib/i18n/config";
++
++export async function setLocale(value: string) {
++  const store = await cookies();
++  store.set(LOCALE_COOKIE, normalizeLocale(value), {
++    path: "/",
++    maxAge: 60 * 60 * 24 * 365, // 1 an
++    sameSite: "lax",
++  });
++}
+diff --git a/app/admin/kits/page.tsx b/app/admin/kits/page.tsx
+index 7b5b590..452f026 100644
+--- a/app/admin/kits/page.tsx
++++ b/app/admin/kits/page.tsx
+@@ -5,7 +5,7 @@ import BundleManager from "@/components/BundleManager";
+ export default async function BundlesAdmin() {
+   const { data } = await supabase
+     .from("bundles")
+-    .select("*, bundle_items(id, label)")
++    .select("*, bundle_items(*)")
+     .order("created_at", { ascending: false });
+ 
+   return (
+diff --git a/app/api/translate/route.ts b/app/api/translate/route.ts
+new file mode 100644
+index 0000000..aa49f32
+--- /dev/null
++++ b/app/api/translate/route.ts
+@@ -0,0 +1,94 @@
++// Traduction automatique FR -> EN pour l'espace admin (bouton « Traduire »).
++// Utilise l'API DeepL (offre gratuite : 500 000 caractères / mois).
++// Variable d'environnement à définir : DEEPL_API_KEY (serveur uniquement,
++// surtout PAS de préfixe NEXT_PUBLIC_).
++import { NextResponse } from "next/server";
++import { cookies } from "next/headers";
++import { createServerClient } from "@supabase/ssr";
++
++const MAX_CHARS = 20000;
++
++async function isAdmin() {
++  const store = await cookies();
++  const supabase = createServerClient(
++    process.env.NEXT_PUBLIC_SUPABASE_URL!,
++    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
++    {
++      cookies: {
++        getAll() {
++          return store.getAll();
++        },
++        setAll() {
++          // Lecture seule : rien à écrire ici.
++        },
++      },
++    }
++  );
++
++  const {
++    data: { user },
++  } = await supabase.auth.getUser();
++  if (!user) return false;
++
++  const { data: admin } = await supabase
++    .from("admin_users")
++    .select("id")
++    .eq("id", user.id)
++    .maybeSingle();
++
++  return Boolean(admin);
++}
++
++export async function POST(request: Request) {
++  if (!(await isAdmin())) {
++    return NextResponse.json({ error: "Accès réservé aux administrateurs." }, { status: 401 });
++  }
++
++  const key = process.env.DEEPL_API_KEY;
++  if (!key) {
++    return NextResponse.json(
++      { error: "Traduction automatique non configurée (DEEPL_API_KEY manquante)." },
++      { status: 500 }
++    );
++  }
++
++  let texts: string[] = [];
++  try {
++    const body = await request.json();
++    texts = Array.isArray(body?.texts) ? body.texts.map((x: unknown) => String(x ?? "")) : [];
++  } catch {
++    return NextResponse.json({ error: "Requête invalide." }, { status: 400 });
++  }
++
++  if (texts.length === 0) return NextResponse.json({ translations: [] });
++  if (texts.join("").length > MAX_CHARS) {
++    return NextResponse.json({ error: "Texte trop long pour une traduction." }, { status: 413 });
++  }
++
++  // Les clés gratuites se terminent par ":fx" et utilisent un autre domaine.
++  const host = key.endsWith(":fx") ? "https://api-free.deepl.com" : "https://api.deepl.com";
++
++  const response = await fetch(`${host}/v2/translate`, {
++    method: "POST",
++    headers: {
++      Authorization: `DeepL-Auth-Key ${key}`,
++      "Content-Type": "application/json",
++    },
++    body: JSON.stringify({
++      text: texts,
++      source_lang: "FR",
++      target_lang: "EN-GB",
++      preserve_formatting: true,
++    }),
++  });
++
++  if (!response.ok) {
++    return NextResponse.json(
++      { error: `Erreur DeepL (${response.status}).` },
++      { status: 502 }
++    );
++  }
++
++  const data = (await response.json()) as { translations: { text: string }[] };
++  return NextResponse.json({ translations: data.translations.map((t) => t.text) });
++}
+diff --git a/app/blog/[slug]/page.tsx b/app/blog/[slug]/page.tsx
+index 3f64361..ce8f81a 100644
+--- a/app/blog/[slug]/page.tsx
++++ b/app/blog/[slug]/page.tsx
+@@ -3,25 +3,30 @@ import Link from "next/link";
+ import SiteHeader from "@/components/SiteHeader";
+ import SiteFooter from "@/components/SiteFooter";
+ import { supabase } from "@/lib/supabase";
++import { getI18n } from "@/lib/i18n/server";
++import { tr } from "@/lib/i18n/localized";
++import { formatDate } from "@/lib/i18n/config";
+ 
+ type Params = { params: Promise<{ slug: string }> };
+ 
+ export async function generateMetadata({ params }: Params) {
+   const { slug } = await params;
++  const { t, locale } = await getI18n();
+   const { data: post } = await supabase
+     .from("blog_posts")
+-    .select("title, excerpt")
++    .select("*")
+     .eq("slug", slug)
+     .maybeSingle();
+ 
+   return {
+-    title: post?.title || "Article",
+-    description: post?.excerpt || undefined,
++    title: tr(post, "title", locale) || t.blog.articleFallback,
++    description: tr(post, "excerpt", locale) || undefined,
+   };
+ }
+ 
+ export default async function BlogPost({ params }: Params) {
+   const { slug } = await params;
++  const { t, locale } = await getI18n();
+ 
+   const { data: post } = await supabase
+     .from("blog_posts")
+@@ -39,25 +44,25 @@ export default async function BlogPost({ params }: Params) {
+       <main className="min-h-screen bg-[#faf8f4] px-6 py-16">
+         <article className="mx-auto max-w-3xl">
+           <Link href="/blog" className="font-bold">
+-            ← Conseils couture
++            {t.blog.back}
+           </Link>
+ 
+           <p className="mt-6 text-xs font-bold uppercase tracking-wide text-neutral-400">
+-            {new Date(post.created_at).toLocaleDateString("fr-FR")}
++            {formatDate(post.created_at, locale)}
+           </p>
+ 
+-          <h1 className="mt-2 text-4xl font-black">{post.title}</h1>
++          <h1 className="mt-2 text-4xl font-black">{tr(post, "title", locale)}</h1>
+ 
+           {post.cover_image && (
+             <img
+               src={post.cover_image}
+-              alt={post.title}
++              alt={tr(post, "title", locale)}
+               className="mt-8 h-80 w-full rounded-3xl object-cover"
+             />
+           )}
+ 
+           <div className="mt-8 whitespace-pre-line text-lg leading-8 text-neutral-700">
+-            {post.content}
++            {tr(post, "content", locale)}
+           </div>
+         </article>
+       </main>
+diff --git a/app/blog/page.tsx b/app/blog/page.tsx
+index 14357b8..d25c490 100644
+--- a/app/blog/page.tsx
++++ b/app/blog/page.tsx
+@@ -2,16 +2,21 @@ import Link from "next/link";
+ import SiteHeader from "@/components/SiteHeader";
+ import SiteFooter from "@/components/SiteFooter";
+ import { supabase } from "@/lib/supabase";
++import { getI18n } from "@/lib/i18n/server";
++import { tr } from "@/lib/i18n/localized";
++import { formatDate } from "@/lib/i18n/config";
+ 
+-export const metadata = {
+-  title: "Conseils couture",
+-  description: "Astuces, guides et actualités couture par Hurrah Mercerie.",
+-};
++export async function generateMetadata() {
++  const { t } = await getI18n();
++  return { title: t.blog.metaTitle, description: t.blog.metaDescription };
++}
+ 
+ export default async function Blog() {
++  const { t, locale } = await getI18n();
++
+   const { data: posts } = await supabase
+     .from("blog_posts")
+-    .select("id, title, slug, excerpt, cover_image, created_at")
++    .select("*")
+     .eq("status", "published")
+     .order("created_at", { ascending: false });
+ 
+@@ -25,16 +30,15 @@ export default async function Blog() {
+             Hurrah Mercerie
+           </p>
+ 
+-          <h1 className="mt-3 text-5xl font-black">Conseils couture</h1>
++          <h1 className="mt-3 text-5xl font-black">{t.blog.title}</h1>
+ 
+           <p className="mt-4 max-w-2xl text-neutral-600">
+-            Astuces, guides pratiques et actualités pour bien choisir votre
+-            matériel de couture.
++            {t.blog.intro}
+           </p>
+ 
+           {!posts || posts.length === 0 ? (
+             <div className="mt-12 rounded-3xl bg-white p-10 text-center text-neutral-500">
+-              Aucun article publié pour le moment.
++              {t.blog.empty}
+             </div>
+           ) : (
+             <div className="mt-12 grid gap-7 sm:grid-cols-2 lg:grid-cols-3">
+@@ -47,26 +51,26 @@ export default async function Blog() {
+                   <div className="h-48 overflow-hidden bg-neutral-100">
+                     <img
+                       src={post.cover_image || "/images/categories/fils.jpeg"}
+-                      alt={post.title}
++                      alt={tr(post, "title", locale)}
+                       className="h-full w-full object-cover transition duration-300 group-hover:scale-105"
+                     />
+                   </div>
+ 
+                   <div className="p-6">
+                     <p className="text-xs font-bold uppercase tracking-wide text-neutral-400">
+-                      {new Date(post.created_at).toLocaleDateString("fr-FR")}
++                      {formatDate(post.created_at, locale)}
+                     </p>
+ 
+-                    <h2 className="mt-2 text-xl font-black">{post.title}</h2>
++                    <h2 className="mt-2 text-xl font-black">{tr(post, "title", locale)}</h2>
+ 
+                     {post.excerpt && (
+                       <p className="mt-2 line-clamp-2 text-sm text-neutral-500">
+-                        {post.excerpt}
++                        {tr(post, "excerpt", locale)}
+                       </p>
+                     )}
+ 
+                     <p className="mt-4 font-semibold text-orange-600">
+-                      Lire →
++                      {t.blog.read}
+                     </p>
+                   </div>
+                 </Link>
+diff --git a/app/catalogue/page.tsx b/app/catalogue/page.tsx
+index b417257..8f099e1 100644
+--- a/app/catalogue/page.tsx
++++ b/app/catalogue/page.tsx
+@@ -4,6 +4,8 @@ import SiteFooter from "@/components/SiteFooter";
+ import ProductCard from "@/components/ProductCard";
+ import CatalogueFilters from "@/components/CatalogueFilters";
+ import { supabase } from "@/lib/supabase";
++import { getI18n } from "@/lib/i18n/server";
++import { tr } from "@/lib/i18n/localized";
+ 
+ const FALLBACK_IMAGE = "/images/categories/fils.jpeg";
+ 
+@@ -17,20 +19,28 @@ type Props = {
+ 
+ export default async function CataloguePage({ searchParams }: Props) {
+   const params = await searchParams;
++  const { t, locale } = await getI18n();
+   const selectedCategory = params.categorie || "Toutes";
+   const searchTerm = (params.q || "").trim();
+   const availability = params.disponibilite || "toutes";
+ 
+   const { data: categoriesData } = await supabase
+     .from("categories")
+-    .select("name, image_url")
++    .select("*")
+     .order("name");
+ 
++  // `name` (français) reste la valeur utilisée dans l'URL ;
++  // `label` est le nom affiché dans la langue du visiteur.
+   const categories = (categoriesData || []).map((c) => ({
+-    name: c.name,
++    name: c.name as string,
++    label: tr(c, "name", locale),
+     image: c.image_url || FALLBACK_IMAGE,
+   }));
+ 
++  const selectedLabel =
++    categories.find((c) => c.name === selectedCategory)?.label ||
++    selectedCategory;
++
+   let query = supabase
+     .from("products")
+     .select("*, product_images(image_url, display_order)")
+@@ -56,9 +66,11 @@ export default async function CataloguePage({ searchParams }: Props) {
+ 
+   if (searchTerm) {
+     const escaped = searchTerm.replace(/[%,]/g, "");
+-    query = query.or(
+-      `name.ilike.%${escaped}%,description.ilike.%${escaped}%,reference.ilike.%${escaped}%`
+-    );
++    const fields = ["name", "description", "reference"];
++    // En anglais, on cherche aussi dans les champs traduits.
++    // (Le fon utilise les noms de produits en français pour l'instant.)
++    if (locale === "en") fields.push("name_en", "description_en");
++    query = query.or(fields.map((f) => `${f}.ilike.%${escaped}%`).join(","));
+   }
+ 
+   if (availability === "disponible") {
+@@ -90,11 +102,11 @@ export default async function CataloguePage({ searchParams }: Props) {
+           </p>
+ 
+           <h1 className="mt-3 text-5xl font-black">
+-            Notre catalogue
++            {t.catalogue.title}
+           </h1>
+ 
+           <p className="mt-4 max-w-2xl text-neutral-600">
+-            Découvrez nos machines, fils, tissus, boutons et accessoires.
++            {t.catalogue.intro}
+           </p>
+ 
+           {/* RECHERCHE + DISPONIBILITÉ */}
+@@ -107,7 +119,7 @@ export default async function CataloguePage({ searchParams }: Props) {
+           {/* FILTRES CATÉGORIE */}
+           <section className="mt-8">
+             <h2 className="text-2xl font-black">
+-              Explorer par catégorie
++              {t.catalogue.exploreByCategory}
+             </h2>
+ 
+             <div className="mt-6 flex flex-wrap gap-3">
+@@ -127,7 +139,7 @@ export default async function CataloguePage({ searchParams }: Props) {
+                     : "bg-white hover:bg-neutral-950 hover:text-white"
+                 }`}
+               >
+-                Tous les produits
++                {t.catalogue.allProducts}
+               </Link>
+ 
+               {categories.map((category) => (
+@@ -149,7 +161,7 @@ export default async function CataloguePage({ searchParams }: Props) {
+                       : "bg-white hover:bg-orange-600 hover:text-white"
+                   }`}
+                 >
+-                  {category.name}
++                  {category.label}
+                 </Link>
+               ))}
+             </div>
+@@ -159,7 +171,7 @@ export default async function CataloguePage({ searchParams }: Props) {
+           {selectedCategory === "Toutes" && !searchTerm && (
+             <section className="mt-12">
+               <h2 className="text-2xl font-black">
+-                Nos catégories
++                {t.catalogue.ourCategories}
+               </h2>
+ 
+               <div className="mt-6 grid gap-6 md:grid-cols-3">
+@@ -173,17 +185,17 @@ export default async function CataloguePage({ searchParams }: Props) {
+                   >
+                     <img
+                       src={category.image}
+-                      alt={category.name}
++                      alt={category.label}
+                       className="h-64 w-full object-cover transition duration-300 group-hover:scale-105"
+                     />
+ 
+                     <div className="p-6">
+                       <h3 className="text-2xl font-black">
+-                        {category.name}
++                        {category.label}
+                       </h3>
+ 
+                       <p className="mt-3 font-semibold text-orange-600">
+-                        Découvrir →
++                        {t.common.discoverArrow}
+                       </p>
+                     </div>
+                   </Link>
+@@ -196,22 +208,21 @@ export default async function CataloguePage({ searchParams }: Props) {
+           <section className="mt-16">
+             <p className="text-sm font-bold uppercase tracking-[0.2em] text-orange-600">
+               {selectedCategory === "Toutes"
+-                ? "Tous nos produits"
+-                : selectedCategory}
++                ? t.catalogue.allOurProducts
++                : selectedLabel}
+             </p>
+ 
+             <div className="mt-2 flex flex-wrap items-end justify-between gap-3">
+               <h2 className="text-3xl font-black">
+                 {searchTerm
+-                  ? `Résultats pour "${searchTerm}"`
++                  ? t.catalogue.resultsFor(searchTerm)
+                   : selectedCategory === "Toutes"
+-                  ? "Découvrez nos produits"
+-                  : `Produits ${selectedCategory}`}
++                  ? t.catalogue.discoverProducts
++                  : t.catalogue.categoryProducts(selectedLabel)}
+               </h2>
+ 
+               <p className="text-sm font-semibold text-neutral-500">
+-                {products.length}{" "}
+-                {products.length > 1 ? "résultats" : "résultat"}
++                {t.catalogue.resultCount(products.length)}
+               </p>
+             </div>
+ 
+@@ -228,15 +239,15 @@ export default async function CataloguePage({ searchParams }: Props) {
+               <div className="mt-8 rounded-3xl bg-white p-10 text-center">
+                 <p className="font-semibold text-neutral-600">
+                   {searchTerm
+-                    ? `Aucun produit ne correspond à "${searchTerm}".`
+-                    : "Aucun produit publié dans cette catégorie pour le moment."}
++                    ? t.catalogue.noMatch(searchTerm)
++                    : t.catalogue.emptyCategory}
+                 </p>
+ 
+                 <Link
+                   href="/catalogue"
+                   className="mt-5 inline-block rounded-full bg-neutral-950 px-6 py-3 text-sm font-bold text-white"
+                 >
+-                  Voir tous les produits
++                  {t.catalogue.seeAllProducts}
+                 </Link>
+               </div>
+             )}
+diff --git a/app/commande/page.tsx b/app/commande/page.tsx
+index 6fceaed..2d40aeb 100644
+--- a/app/commande/page.tsx
++++ b/app/commande/page.tsx
+@@ -5,15 +5,20 @@ import { useEffect, useState } from "react";
+ import { supabase } from "@/lib/supabase";
+ import { formatPrice } from "@/lib/format";
+ import { buildWhatsAppLink } from "@/lib/site-config";
++import { useI18n } from "@/lib/i18n/client";
++import { tr } from "@/lib/i18n/localized";
+ 
+ type CartItem = {
+   id: string;
+   name: string;
++  name_en?: string | null;
+   price: number;
+   quantity: number;
+ };
+ 
+ export default function Commande() {
++  const { t, locale } = useI18n();
++  const wa = t.checkout.wa;
+   const [cart, setCart] = useState<CartItem[]>([]);
+   const [form, setForm] = useState({
+     name: "",
+@@ -45,18 +50,21 @@ export default function Commande() {
+ 
+   function whatsappMessage() {
+     const lines = [
+-      "Bonjour Hurrah Mercerie, je souhaite passer une commande :",
++      wa.intro,
+       "",
+-      ...cart.map((p) => `• ${p.quantity} × ${p.name} — ${formatPrice(p.price * p.quantity)}`),
++      ...cart.map(
++        (p) =>
++          `• ${p.quantity} × ${tr(p, "name", locale)} — ${formatPrice(p.price * p.quantity, locale)}`
++      ),
+       "",
+-      `Sous-total : ${formatPrice(subtotal)}`,
+-      promo ? `Code ${promo.code} : -${formatPrice(discount)}` : "",
+-      `Total : ${formatPrice(total)}`,
++      `${wa.subtotal} ${formatPrice(subtotal, locale)}`,
++      promo ? `${wa.code} ${promo.code} : -${formatPrice(discount, locale)}` : "",
++      `${wa.total} ${formatPrice(total, locale)}`,
+       "",
+-      `Nom : ${form.name || "-"}`,
+-      `Téléphone : ${form.phone || "-"}`,
+-      form.address ? `Adresse : ${form.address}` : "",
+-      form.notes ? `Notes : ${form.notes}` : "",
++      `${wa.name} ${form.name || "-"}`,
++      `${wa.phone} ${form.phone || "-"}`,
++      form.address ? `${wa.address} ${form.address}` : "",
++      form.notes ? `${wa.notes} ${form.notes}` : "",
+     ].filter(Boolean);
+ 
+     return lines.join("\n");
+@@ -64,10 +72,10 @@ export default function Commande() {
+ 
+   async function submit(e: React.FormEvent) {
+     e.preventDefault();
+-    setMsg("Envoi...");
++    setMsg(t.checkout.sending);
+ 
+     if (!cart.length) {
+-      setMsg("Votre panier est vide.");
++      setMsg(t.checkout.emptyCart);
+       return;
+     }
+ 
+@@ -86,7 +94,7 @@ export default function Commande() {
+       .single();
+ 
+     if (error || !order) {
+-      setMsg(error?.message || "Erreur lors de l'enregistrement.");
++      setMsg(error?.message || t.checkout.saveError);
+       return;
+     }
+ 
+@@ -126,7 +134,7 @@ export default function Commande() {
+     localStorage.removeItem("hurrah-cart");
+     localStorage.removeItem("hurrah-promo");
+     window.dispatchEvent(new Event("hurrah-cart-updated"));
+-    setMsg("Commande enregistrée avec succès.");
++    setMsg(t.checkout.success);
+     setSuccess(true);
+   }
+ 
+@@ -134,28 +142,28 @@ export default function Commande() {
+     <main className="min-h-screen bg-[#faf8f4] px-6 py-16">
+       <div className="mx-auto max-w-3xl">
+         <Link href="/panier" className="font-bold">
+-          ← Panier
++          {t.checkout.back}
+         </Link>
+ 
+-        <h1 className="mt-8 text-5xl font-black">Finaliser la commande</h1>
++        <h1 className="mt-8 text-5xl font-black">{t.checkout.title}</h1>
+ 
+         <div className="mt-4 space-y-1 text-sm text-neutral-600">
+-          <p>Sous-total : {formatPrice(subtotal)}</p>
++          <p>{t.checkout.subtotal(formatPrice(subtotal, locale))}</p>
+           {promo && (
+             <p className="font-semibold text-emerald-600">
+-              Code {promo.code} : -{formatPrice(discount)}
++              {t.checkout.promo(promo.code, formatPrice(discount, locale))}
+             </p>
+           )}
+           <p className="text-lg font-black text-neutral-950">
+-            Total : {formatPrice(total)}
++            {t.checkout.total(formatPrice(total, locale))}
+           </p>
+         </div>
+ 
+         <div className="mt-4 flex flex-wrap items-center gap-2 text-xs font-bold text-neutral-500">
+-          <span>Paiement accepté :</span>
++          <span>{t.checkout.paymentAccepted}</span>
+           <span className="rounded-full bg-yellow-400 px-3 py-1.5 text-neutral-900">MTN Mobile Money</span>
+           <span className="rounded-full bg-orange-500 px-3 py-1.5 text-white">Moov Money</span>
+-          <span className="rounded-full bg-emerald-600 px-3 py-1.5 text-white">Espèces à la livraison</span>
++          <span className="rounded-full bg-emerald-600 px-3 py-1.5 text-white">{t.checkout.cashOnDelivery}</span>
+         </div>
+ 
+         {!success && (
+@@ -166,7 +174,7 @@ export default function Commande() {
+             <input
+               required
+               className="w-full rounded-2xl border px-5 py-4"
+-              placeholder="Nom complet"
++              placeholder={t.checkout.name}
+               value={form.name}
+               onChange={(e) => setForm({ ...form, name: e.target.value })}
+             />
+@@ -174,27 +182,27 @@ export default function Commande() {
+             <input
+               required
+               className="w-full rounded-2xl border px-5 py-4"
+-              placeholder="Téléphone"
++              placeholder={t.checkout.phone}
+               value={form.phone}
+               onChange={(e) => setForm({ ...form, phone: e.target.value })}
+             />
+ 
+             <input
+               className="w-full rounded-2xl border px-5 py-4"
+-              placeholder="Adresse"
++              placeholder={t.checkout.address}
+               value={form.address}
+               onChange={(e) => setForm({ ...form, address: e.target.value })}
+             />
+ 
+             <textarea
+               className="min-h-32 w-full rounded-2xl border px-5 py-4"
+-              placeholder="Notes"
++              placeholder={t.checkout.notes}
+               value={form.notes}
+               onChange={(e) => setForm({ ...form, notes: e.target.value })}
+             />
+ 
+             <button className="w-full rounded-full bg-neutral-950 py-4 font-bold text-white hover:bg-orange-600">
+-              Confirmer la commande
++              {t.checkout.confirm}
+             </button>
+ 
+             <a
+@@ -202,7 +210,7 @@ export default function Commande() {
+               target="_blank"
+               className="block w-full rounded-full border-2 border-neutral-950 py-4 text-center font-bold text-neutral-950 hover:bg-neutral-950 hover:text-white"
+             >
+-              Commander directement par WhatsApp
++              {t.checkout.whatsappDirect}
+             </a>
+ 
+             {msg && (
+@@ -216,12 +224,11 @@ export default function Commande() {
+         {success && (
+           <div className="mt-10 space-y-5 rounded-3xl bg-white p-8 text-center shadow-sm">
+             <p className="text-xl font-black text-emerald-600">
+-              Commande enregistrée avec succès !
++              {t.checkout.successTitle}
+             </p>
+ 
+             <p className="text-neutral-600">
+-              Hurrah Mercerie va vous contacter au {form.phone} pour confirmer
+-              votre commande.
++              {t.checkout.successText(form.phone)}
+             </p>
+ 
+             <a
+@@ -229,14 +236,14 @@ export default function Commande() {
+               target="_blank"
+               className="inline-block rounded-full bg-orange-600 px-7 py-4 font-bold text-white hover:bg-orange-500"
+             >
+-              Confirmer aussi par WhatsApp
++              {t.checkout.whatsappConfirm}
+             </a>
+ 
+             <Link
+               href="/catalogue"
+               className="block font-bold text-neutral-500 hover:text-neutral-950"
+             >
+-              ← Retour au catalogue
++              {t.common.backToCatalogue}
+             </Link>
+           </div>
+         )}
+diff --git a/app/contact/page.tsx b/app/contact/page.tsx
+index 27333b7..226b4aa 100644
+--- a/app/contact/page.tsx
++++ b/app/contact/page.tsx
+@@ -2,8 +2,11 @@ import SiteHeader from "@/components/SiteHeader";
+ import SiteFooter from "@/components/SiteFooter";
+ import ContactForm from "@/components/ContactForm";
+ import { SITE_CONTACT } from "@/lib/site-config";
++import { getI18n } from "@/lib/i18n/server";
++
++export default async function Contact() {
++  const { t } = await getI18n();
+ 
+-export default function Contact() {
+   return (
+     <>
+       <SiteHeader />
+@@ -11,22 +14,20 @@ export default function Contact() {
+       <main className="min-h-screen bg-[#faf8f4] px-6 py-20">
+         <div className="mx-auto grid max-w-5xl gap-10 lg:grid-cols-[1fr_1.3fr]">
+           <div className="rounded-[2rem] bg-white p-8 shadow-sm">
+-            <h1 className="text-4xl font-black">Contact</h1>
++            <h1 className="text-4xl font-black">{t.contact.title}</h1>
+ 
+             <p className="mt-5 text-sm leading-7 text-neutral-600">
+-              Pour toute demande concernant les produits, les machines ou une
+-              commande, contactez Hurrah Mercerie. Nous répondons rapidement
+-              par WhatsApp.
++              {t.contact.intro}
+             </p>
+ 
+             <div className="mt-8 space-y-4 text-sm">
+               <div>
+-                <p className="font-bold text-neutral-500">Téléphone / WhatsApp</p>
++                <p className="font-bold text-neutral-500">{t.contact.phoneLabel}</p>
+                 <p className="mt-1 font-black">{SITE_CONTACT.phoneDisplay}</p>
+               </div>
+ 
+               <div>
+-                <p className="font-bold text-neutral-500">Adresse</p>
++                <p className="font-bold text-neutral-500">{t.contact.addressLabel}</p>
+                 <p className="mt-1 font-black">{SITE_CONTACT.address}</p>
+               </div>
+             </div>
+diff --git a/app/favoris/page.tsx b/app/favoris/page.tsx
+index 5c2e227..81e5a5b 100644
+--- a/app/favoris/page.tsx
++++ b/app/favoris/page.tsx
+@@ -8,8 +8,10 @@ import ProductCard from "@/components/ProductCard";
+ import { useWishlist } from "@/lib/useWishlist";
+ import { supabase } from "@/lib/supabase";
+ import type { Product } from "@/lib/types";
++import { useI18n } from "@/lib/i18n/client";
+ 
+ export default function Favoris() {
++  const { t } = useI18n();
+   const { ids } = useWishlist();
+   const [products, setProducts] = useState<Product[] | null>(null);
+ 
+@@ -49,21 +51,21 @@ export default function Favoris() {
+             Hurrah Mercerie
+           </p>
+ 
+-          <h1 className="mt-3 text-5xl font-black">Mes favoris</h1>
++          <h1 className="mt-3 text-5xl font-black">{t.favorites.title}</h1>
+ 
+           {products === null ? (
+-            <p className="mt-10 text-neutral-500">Chargement…</p>
++            <p className="mt-10 text-neutral-500">{t.common.loading}</p>
+           ) : products.length === 0 ? (
+             <div className="mt-10 rounded-3xl bg-white p-10 text-center">
+               <p className="font-semibold text-neutral-600">
+-                Vous n&apos;avez pas encore de favoris.
++                {t.favorites.empty}
+               </p>
+ 
+               <Link
+                 href="/catalogue"
+                 className="mt-5 inline-block rounded-full bg-neutral-950 px-6 py-3 text-sm font-bold text-white"
+               >
+-                Voir le catalogue
++                {t.common.viewCatalogue}
+               </Link>
+             </div>
+           ) : (
+diff --git a/app/kits/page.tsx b/app/kits/page.tsx
+index 25ac5ba..938d90a 100644
+--- a/app/kits/page.tsx
++++ b/app/kits/page.tsx
+@@ -2,16 +2,20 @@ import SiteHeader from "@/components/SiteHeader";
+ import SiteFooter from "@/components/SiteFooter";
+ import { supabase } from "@/lib/supabase";
+ import { formatPrice } from "@/lib/format";
++import { getI18n } from "@/lib/i18n/server";
++import { tr } from "@/lib/i18n/localized";
+ 
+-export const metadata = {
+-  title: "Kits couture",
+-  description: "Nos kits prêts à l'emploi à prix groupé.",
+-};
++export async function generateMetadata() {
++  const { t } = await getI18n();
++  return { title: t.kits.metaTitle, description: t.kits.metaDescription };
++}
+ 
+ export default async function Kits() {
++  const { t, locale } = await getI18n();
++
+   const { data: bundles } = await supabase
+     .from("bundles")
+-    .select("*, bundle_items(id, label)")
++    .select("*, bundle_items(*)")
+     .eq("status", "published")
+     .order("created_at", { ascending: false });
+ 
+@@ -25,16 +29,15 @@ export default async function Kits() {
+             Hurrah Mercerie
+           </p>
+ 
+-          <h1 className="mt-3 text-5xl font-black">Kits couture</h1>
++          <h1 className="mt-3 text-5xl font-black">{t.kits.title}</h1>
+ 
+           <p className="mt-4 max-w-2xl text-neutral-600">
+-            Des sélections prêtes à l'emploi, à prix groupé, pour bien
+-            démarrer votre projet.
++            {t.kits.intro}
+           </p>
+ 
+           {!bundles || bundles.length === 0 ? (
+             <div className="mt-12 rounded-3xl bg-white p-10 text-center text-neutral-500">
+-              Aucun kit disponible pour le moment.
++              {t.kits.empty}
+             </div>
+           ) : (
+             <div className="mt-12 grid gap-7 sm:grid-cols-2 lg:grid-cols-3">
+@@ -46,30 +49,30 @@ export default async function Kits() {
+                   <div className="h-56 bg-neutral-100">
+                     <img
+                       src={bundle.image_url || "/images/categories/fils.jpeg"}
+-                      alt={bundle.name}
++                      alt={tr(bundle, "name", locale)}
+                       className="h-full w-full object-cover"
+                     />
+                   </div>
+ 
+                   <div className="p-6">
+-                    <h2 className="text-xl font-black">{bundle.name}</h2>
++                    <h2 className="text-xl font-black">{tr(bundle, "name", locale)}</h2>
+ 
+                     {bundle.description && (
+                       <p className="mt-2 text-sm text-neutral-500">
+-                        {bundle.description}
++                        {tr(bundle, "description", locale)}
+                       </p>
+                     )}
+ 
+                     {bundle.bundle_items?.length > 0 && (
+                       <ul className="mt-4 space-y-1 text-sm text-neutral-600">
+                         {bundle.bundle_items.map((item: any) => (
+-                          <li key={item.id}>• {item.label}</li>
++                          <li key={item.id}>• {tr(item, "label", locale)}</li>
+                         ))}
+                       </ul>
+                     )}
+ 
+                     <p className="mt-4 text-xl font-black text-orange-600">
+-                      {formatPrice(bundle.price)}
++                      {formatPrice(bundle.price, locale)}
+                     </p>
+                   </div>
+                 </div>
+diff --git a/app/layout.tsx b/app/layout.tsx
+index a8fdde4..9927179 100644
+--- a/app/layout.tsx
++++ b/app/layout.tsx
+@@ -1,46 +1,53 @@
+ import type { Metadata } from "next";
+ import "./globals.css";
+ import { ToastProvider } from "@/components/Toast";
++import { LocaleProvider } from "@/lib/i18n/client";
++import { getI18n, getLocale } from "@/lib/i18n/server";
+ 
+ const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://hurrahmercerie.com";
+ const OG_IMAGE = `${SITE_URL}/images/machines/machine singer.jpeg`;
+ 
+-export const metadata: Metadata = {
+-  metadataBase: new URL(SITE_URL),
+-  title: {
+-    default: "Hurrah Mercerie | Machines à coudre, tissus et accessoires",
+-    template: "%s | Hurrah Mercerie",
+-  },
+-  description:
+-    "Découvrez Hurrah Mercerie : machines à coudre, tissus, fils et accessoires pour tous vos projets de couture.",
+-  openGraph: {
+-    title: "Hurrah Mercerie",
+-    description:
+-      "Machines à coudre, tissus, fils et accessoires pour donner vie à vos créations.",
+-    url: SITE_URL,
+-    siteName: "Hurrah Mercerie",
+-    images: [{ url: OG_IMAGE, width: 1200, height: 630 }],
+-    locale: "fr_FR",
+-    type: "website",
+-  },
+-  twitter: {
+-    card: "summary_large_image",
+-    title: "Hurrah Mercerie",
+-    description:
+-      "Machines à coudre, tissus, fils et accessoires pour donner vie à vos créations.",
+-    images: [OG_IMAGE],
+-  },
+-};
++export async function generateMetadata(): Promise<Metadata> {
++  const { t } = await getI18n();
+ 
+-export default function RootLayout({
++  return {
++    metadataBase: new URL(SITE_URL),
++    title: {
++      default: t.meta.title,
++      template: "%s | Hurrah Mercerie",
++    },
++    description: t.meta.description,
++    openGraph: {
++      title: "Hurrah Mercerie",
++      description: t.meta.ogDescription,
++      url: SITE_URL,
++      siteName: "Hurrah Mercerie",
++      images: [{ url: OG_IMAGE, width: 1200, height: 630 }],
++      locale: t.meta.ogLocale,
++      type: "website",
++    },
++    twitter: {
++      card: "summary_large_image",
++      title: "Hurrah Mercerie",
++      description: t.meta.ogDescription,
++      images: [OG_IMAGE],
++    },
++  };
++}
++
++export default async function RootLayout({
+   children,
+ }: Readonly<{
+   children: React.ReactNode;
+ }>) {
++  const locale = await getLocale();
++
+   return (
+-    <html lang="fr">
++    <html lang={locale}>
+       <body>
+-        <ToastProvider>{children}</ToastProvider>
++        <LocaleProvider locale={locale}>
++          <ToastProvider>{children}</ToastProvider>
++        </LocaleProvider>
+       </body>
+     </html>
+   );
+diff --git a/app/machines/butterfly/page.tsx b/app/machines/butterfly/page.tsx
+index 268a1be..44783eb 100644
+--- a/app/machines/butterfly/page.tsx
++++ b/app/machines/butterfly/page.tsx
+@@ -1,2 +1,2 @@
+ import MachineDetail from "@/components/MachineDetail";
+-export default function Page(){return <MachineDetail name="Machine à coudre Butterfly" image="/images/machines/machine butterfly.jpeg" type="Industrielle"/>}
++export default function Page(){return <MachineDetail machine="butterfly" image="/images/machines/machine butterfly.jpeg"/>}
+diff --git a/app/machines/page.tsx b/app/machines/page.tsx
+index f8a8350..0cc33b1 100644
+--- a/app/machines/page.tsx
++++ b/app/machines/page.tsx
+@@ -1,5 +1,16 @@
+ import Link from "next/link";
+ import SiteHeader from "@/components/SiteHeader";
+ import SiteFooter from "@/components/SiteFooter";
+-const items=[["Machine Singer","/machines/singer","/images/machines/machine singer.jpeg"],["Machine Butterfly","/machines/butterfly","/images/machines/machine butterfly.jpeg"]];
+-export default function Machines(){return <><SiteHeader/><main className="min-h-screen bg-[#f3eee7] px-6 py-16"><div className="mx-auto max-w-7xl"><h1 className="text-5xl font-black">Machines à coudre</h1><p className="mt-4 max-w-2xl text-neutral-600">Deux grandes catégories de machines proposées par Hurrah Mercerie.</p><div className="mt-12 grid gap-7 lg:grid-cols-2">{items.map(([n,h,i])=><Link href={h} key={n} className="overflow-hidden rounded-[2rem] bg-white shadow"><div className="relative h-96 bg-neutral-100"><img src={i} alt={n} className="h-full w-full object-contain p-8"/></div><div className="p-7"><h2 className="text-3xl font-black">{n}</h2><p className="mt-4 text-xl font-black text-orange-600">80 000 – 90 000 FCFA</p><span className="mt-6 block rounded-full bg-neutral-950 py-4 text-center font-bold text-white">Voir la machine</span></div></Link>)}</div></div></main><SiteFooter/></>}
++import { getI18n } from "@/lib/i18n/server";
++import { formatPrice } from "@/lib/format";
++
++const items = [
++  { key: "singer", href: "/machines/singer", image: "/images/machines/machine singer.jpeg" },
++  { key: "butterfly", href: "/machines/butterfly", image: "/images/machines/machine butterfly.jpeg" },
++] as const;
++
++export default async function Machines() {
++  const { t, locale } = await getI18n();
++
++  return <><SiteHeader/><main className="min-h-screen bg-[#f3eee7] px-6 py-16"><div className="mx-auto max-w-7xl"><h1 className="text-5xl font-black">{t.machines.title}</h1><p className="mt-4 max-w-2xl text-neutral-600">{t.machines.intro}</p><div className="mt-12 grid gap-7 lg:grid-cols-2">{items.map((item)=>{const n=t.machines.items[item.key].shortName;return <Link href={item.href} key={item.key} className="overflow-hidden rounded-[2rem] bg-white shadow"><div className="relative h-96 bg-neutral-100"><img src={item.image} alt={n} className="h-full w-full object-contain p-8"/></div><div className="p-7"><h2 className="text-3xl font-black">{n}</h2><p className="mt-4 text-xl font-black text-orange-600">{formatPrice(80000, locale)} – {formatPrice(90000, locale)}</p><span className="mt-6 block rounded-full bg-neutral-950 py-4 text-center font-bold text-white">{t.machines.seeMachine}</span></div></Link>})}</div></div></main><SiteFooter/></>;
++}
+diff --git a/app/machines/singer/page.tsx b/app/machines/singer/page.tsx
+index 614a6fe..4ce0c7f 100644
+--- a/app/machines/singer/page.tsx
++++ b/app/machines/singer/page.tsx
+@@ -1,2 +1,2 @@
+ import MachineDetail from "@/components/MachineDetail";
+-export default function Page(){return <MachineDetail name="Machine à coudre Singer" image="/images/machines/machine singer.jpeg" type="Familiale"/>}
++export default function Page(){return <MachineDetail machine="singer" image="/images/machines/machine singer.jpeg"/>}
+diff --git a/app/page.tsx b/app/page.tsx
+index 65d983d..c1065f7 100644
+--- a/app/page.tsx
++++ b/app/page.tsx
+@@ -5,19 +5,28 @@ import SiteFooter from "@/components/SiteFooter";
+ import SocialGallery from "@/components/SocialGallery";
+ import ProductCard from "@/components/ProductCard";
+ import { supabase } from "@/lib/supabase";
++import { getI18n } from "@/lib/i18n/server";
++import { formatPrice } from "@/lib/format";
+ 
+-const categories = [
+-  { name: "Fils & Laines", image: "/images/categories/fils.jpeg", href: "/catalogue?categorie=Fils%20%26%20Laines", description: "Fils et laines pour vos différents projets." },
+-  { name: "Duchesse", image: "/images/categories/duchesse.jpeg", href: "/catalogue?categorie=Duchesse", description: "Découvrez notre sélection de tissus duchesse." },
+-  { name: "Boutons", image: "/images/categories/bouton.jpeg", href: "/catalogue?categorie=Boutons", description: "Différents boutons et accessoires." },
++// Les liens gardent le nom français de la catégorie (utilisé par le filtre du catalogue).
++const categoryLinks = [
++  { image: "/images/categories/fils.jpeg", href: "/catalogue?categorie=Fils%20%26%20Laines" },
++  { image: "/images/categories/duchesse.jpeg", href: "/catalogue?categorie=Duchesse" },
++  { image: "/images/categories/bouton.jpeg", href: "/catalogue?categorie=Boutons" },
+ ];
+ 
+-const machines = [
+-  { name: "Machine à coudre Singer", description: "Une machine pratique pour les travaux de couture du quotidien.", image: "/images/machines/machine singer.jpeg", href: "/machines/singer", type: "Familiale" },
+-  { name: "Machine à coudre Butterfly", description: "Une machine robuste adaptée aux travaux de couture intensifs.", image: "/images/machines/machine butterfly.jpeg", href: "/machines/butterfly", type: "Industrielle" },
+-];
++const machineLinks = [
++  { key: "singer", image: "/images/machines/machine singer.jpeg", href: "/machines/singer" },
++  { key: "butterfly", image: "/images/machines/machine butterfly.jpeg", href: "/machines/butterfly" },
++] as const;
+ 
+ export default async function Home() {
++  const { t, locale } = await getI18n();
++  const h = t.home;
++
++  const categories = categoryLinks.map((c, i) => ({ ...c, ...h.categories[i] }));
++  const machines = machineLinks.map((m) => ({ ...m, ...t.machines.items[m.key] }));
++
+   const { data: featuredData } = await supabase
+     .from("products")
+     .select("*, product_images(image_url, display_order)")
+@@ -41,58 +50,56 @@ export default async function Home() {
+       <section className="relative overflow-hidden">
+         <div className="mx-auto grid min-h-[680px] max-w-7xl items-center gap-12 px-6 py-16 lg:grid-cols-2 lg:py-20">
+           <div>
+-            <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-orange-200 bg-orange-50 px-4 py-2 text-sm font-semibold text-orange-700"><span className="h-2 w-2 rounded-full bg-orange-500" />L'univers de la couture</div>
+-            <h1 className="max-w-3xl text-5xl font-black leading-[0.98] tracking-tight sm:text-6xl lg:text-7xl">Tout pour<span className="block text-orange-600">créer, coudre</span>et imaginer.</h1>
+-            <p className="mt-7 max-w-xl text-lg leading-8 text-neutral-600">Découvrez Hurrah Mercerie, votre espace dédié aux machines à coudre, tissus, fils et accessoires indispensables à vos créations.</p>
++            <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-orange-200 bg-orange-50 px-4 py-2 text-sm font-semibold text-orange-700"><span className="h-2 w-2 rounded-full bg-orange-500" />{h.badge}</div>
++            <h1 className="max-w-3xl text-5xl font-black leading-[0.98] tracking-tight sm:text-6xl lg:text-7xl">{h.heroTitle1}<span className="block text-orange-600">{h.heroTitle2}</span>{h.heroTitle3}</h1>
++            <p className="mt-7 max-w-xl text-lg leading-8 text-neutral-600">{h.heroText}</p>
+             <div className="mt-9 flex flex-col gap-4 sm:flex-row">
+-              <Link href="/machines" className="rounded-full bg-neutral-950 px-7 py-4 text-center text-sm font-bold text-white shadow-xl hover:bg-orange-600">Voir nos machines</Link>
+-              <Link href="/catalogue" className="rounded-full border border-neutral-300 bg-white px-7 py-4 text-center text-sm font-bold hover:border-orange-500 hover:text-orange-600">Explorer la mercerie</Link>
++              <Link href="/machines" className="rounded-full bg-neutral-950 px-7 py-4 text-center text-sm font-bold text-white shadow-xl hover:bg-orange-600">{h.seeMachines}</Link>
++              <Link href="/catalogue" className="rounded-full border border-neutral-300 bg-white px-7 py-4 text-center text-sm font-bold hover:border-orange-500 hover:text-orange-600">{h.exploreShop}</Link>
+             </div>
+             <div className="mt-12 grid max-w-lg grid-cols-3 gap-5 border-t border-neutral-200 pt-7">
+-              <div><div className="text-2xl font-black">02</div><div className="mt-1 text-xs text-neutral-500">types de machines</div></div>
+-              <div><div className="text-2xl font-black">∞</div><div className="mt-1 text-xs text-neutral-500">possibilités créatives</div></div>
+-              <div><div className="text-2xl font-black">100%</div><div className="mt-1 text-xs text-neutral-500">passion couture</div></div>
++              {h.stats.map((stat) => <div key={stat.label}><div className="text-2xl font-black">{stat.value}</div><div className="mt-1 text-xs text-neutral-500">{stat.label}</div></div>)}
+             </div>
+           </div>
+           <div className="relative h-[500px] overflow-hidden rounded-[2rem] shadow-2xl lg:h-[610px]">
+-            <Image src="/images/machines/machine singer.jpeg" alt="Machine à coudre chez Hurrah Mercerie" fill priority className="object-cover transition duration-700 hover:scale-105" sizes="(max-width: 1024px) 100vw, 50vw" />
++            <Image src="/images/machines/machine singer.jpeg" alt={h.heroImageAlt} fill priority className="object-cover transition duration-700 hover:scale-105" sizes="(max-width: 1024px) 100vw, 50vw" />
+             <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
+-            <div className="absolute bottom-7 left-7 right-7 rounded-2xl border border-white/20 bg-black/40 p-5 text-white backdrop-blur-md"><p className="text-xs font-semibold uppercase tracking-[0.2em] text-white/70">Hurrah Mercerie</p><p className="mt-2 text-xl font-bold">Donnez vie à vos idées.</p></div>
++            <div className="absolute bottom-7 left-7 right-7 rounded-2xl border border-white/20 bg-black/40 p-5 text-white backdrop-blur-md"><p className="text-xs font-semibold uppercase tracking-[0.2em] text-white/70">Hurrah Mercerie</p><p className="mt-2 text-xl font-bold">{h.heroCard}</p></div>
+           </div>
+         </div>
+       </section>
+ 
+       <section className="bg-white px-6 py-24">
+         <div className="mx-auto max-w-7xl">
+-          <p className="text-sm font-bold uppercase tracking-[0.25em] text-orange-600">Nos univers</p>
+-          <h2 className="mt-3 text-4xl font-black tracking-tight sm:text-5xl">Tout commence ici.</h2>
++          <p className="text-sm font-bold uppercase tracking-[0.25em] text-orange-600">{h.universesEyebrow}</p>
++          <h2 className="mt-3 text-4xl font-black tracking-tight sm:text-5xl">{h.universesTitle}</h2>
+           <div className="mt-12 grid gap-6 md:grid-cols-3">
+-            {categories.map((category) => <Link href={category.href} key={category.name} className="group relative h-[420px] overflow-hidden rounded-[1.75rem] bg-neutral-200"><Image src={category.image} alt={category.name} fill className="object-cover transition duration-700 group-hover:scale-110" sizes="(max-width: 768px) 100vw, 33vw" /><div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/10 to-transparent" /><div className="absolute bottom-0 p-7 text-white"><h3 className="text-2xl font-black">{category.name}</h3><p className="mt-2 text-sm text-white/80">{category.description}</p><span className="mt-5 inline-block text-sm font-bold">Découvrir →</span></div></Link>)}
++            {categories.map((category) => <Link href={category.href} key={category.href} className="group relative h-[420px] overflow-hidden rounded-[1.75rem] bg-neutral-200"><Image src={category.image} alt={category.name} fill className="object-cover transition duration-700 group-hover:scale-110" sizes="(max-width: 768px) 100vw, 33vw" /><div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/10 to-transparent" /><div className="absolute bottom-0 p-7 text-white"><h3 className="text-2xl font-black">{category.name}</h3><p className="mt-2 text-sm text-white/80">{category.description}</p><span className="mt-5 inline-block text-sm font-bold">{t.common.discoverArrow}</span></div></Link>)}
+           </div>
+         </div>
+       </section>
+ 
+       <section className="bg-[#f3eee7] px-6 py-24">
+         <div className="mx-auto max-w-7xl">
+-          <p className="text-sm font-bold uppercase tracking-[0.25em] text-orange-600">Machines à coudre</p>
+-          <h2 className="mt-3 max-w-2xl text-4xl font-black tracking-tight sm:text-5xl">Choisissez la machine adaptée à votre travail.</h2>
++          <p className="text-sm font-bold uppercase tracking-[0.25em] text-orange-600">{h.machinesEyebrow}</p>
++          <h2 className="mt-3 max-w-2xl text-4xl font-black tracking-tight sm:text-5xl">{h.machinesTitle}</h2>
+           <div className="mt-12 grid gap-7 lg:grid-cols-2">
+-            {machines.map((machine) => <article key={machine.name} className="overflow-hidden rounded-[2rem] bg-white shadow-sm transition hover:-translate-y-2 hover:shadow-2xl"><Link href={machine.href}><div className="relative h-[390px] overflow-hidden bg-neutral-100"><Image src={machine.image} alt={machine.name} fill className="object-contain p-8" sizes="(max-width: 1024px) 100vw, 50vw" /><div className="absolute left-5 top-5 rounded-full bg-neutral-950 px-4 py-2 text-xs font-bold text-white">{machine.type}</div></div></Link><div className="p-7"><h3 className="text-2xl font-black">{machine.name}</h3><p className="mt-2 text-sm leading-6 text-neutral-500">{machine.description}</p><p className="mt-4 text-xl font-black text-orange-600">80 000 – 90 000 FCFA</p><Link href={machine.href} className="mt-7 block w-full rounded-full bg-neutral-950 py-4 text-center text-sm font-bold text-white hover:bg-orange-600">Voir la machine</Link></div></article>)}
++            {machines.map((machine) => <article key={machine.key} className="overflow-hidden rounded-[2rem] bg-white shadow-sm transition hover:-translate-y-2 hover:shadow-2xl"><Link href={machine.href}><div className="relative h-[390px] overflow-hidden bg-neutral-100"><Image src={machine.image} alt={machine.name} fill className="object-contain p-8" sizes="(max-width: 1024px) 100vw, 50vw" /><div className="absolute left-5 top-5 rounded-full bg-neutral-950 px-4 py-2 text-xs font-bold text-white">{machine.type}</div></div></Link><div className="p-7"><h3 className="text-2xl font-black">{machine.name}</h3><p className="mt-2 text-sm leading-6 text-neutral-500">{machine.description}</p><p className="mt-4 text-xl font-black text-orange-600">{formatPrice(80000, locale)} – {formatPrice(90000, locale)}</p><Link href={machine.href} className="mt-7 block w-full rounded-full bg-neutral-950 py-4 text-center text-sm font-bold text-white hover:bg-orange-600">{h.seeMachine}</Link></div></article>)}
+           </div>
+         </div>
+       </section>
+ 
+-      <section className="bg-neutral-950 px-6 py-20 text-white"><div className="mx-auto grid max-w-7xl gap-10 md:grid-cols-3"><div><div className="mb-5 text-3xl">✦</div><h3 className="text-xl font-black">Un choix pensé pour la couture</h3><p className="mt-3 text-sm leading-6 text-white/60">Des produits sélectionnés pour accompagner débutants et professionnels.</p></div><div><div className="mb-5 text-3xl">⌁</div><h3 className="text-xl font-black">Tout au même endroit</h3><p className="mt-3 text-sm leading-6 text-white/60">Machines, tissus, fils et accessoires réunis dans un seul univers.</p></div><div><div className="mb-5 text-3xl">♡</div><h3 className="text-xl font-black">Une expérience simple</h3><p className="mt-3 text-sm leading-6 text-white/60">Parcourez nos produits et trouvez facilement ce dont vous avez besoin.</p></div></div></section>
++      <section className="bg-neutral-950 px-6 py-20 text-white"><div className="mx-auto grid max-w-7xl gap-10 md:grid-cols-3">{h.features.map((feature, i) => <div key={feature.title}><div className="mb-5 text-3xl">{["✦", "⌁", "♡"][i]}</div><h3 className="text-xl font-black">{feature.title}</h3><p className="mt-3 text-sm leading-6 text-white/60">{feature.text}</p></div>)}</div></section>
+ 
+-      <section className="bg-white px-6 py-24"><div className="mx-auto grid max-w-7xl gap-14 lg:grid-cols-2 lg:items-center"><div><p className="text-sm font-bold uppercase tracking-[0.25em] text-orange-600">À propos de Hurrah</p><h2 className="mt-4 text-4xl font-black tracking-tight sm:text-5xl">Une mercerie pensée pour les créateurs.</h2><p className="mt-7 leading-8 text-neutral-600">Hurrah Mercerie accompagne les passionnés de couture dans leurs projets en proposant des machines à coudre, des tissus, des fils et différents accessoires.</p><p className="mt-4 leading-8 text-neutral-600">Notre objectif est simple : rendre l'univers de la couture plus accessible et permettre à chacun de trouver facilement les produits nécessaires à ses créations.</p><Link href="/contact" className="mt-8 inline-flex rounded-full bg-orange-600 px-7 py-4 text-sm font-bold text-white hover:bg-neutral-950">Nous contacter</Link></div><div className="grid grid-cols-2 gap-5"><div className="rounded-[2rem] bg-[#f3eee7] p-8"><div className="text-4xl font-black">01</div><p className="mt-3 font-semibold">Machines</p></div><div className="mt-10 rounded-[2rem] bg-neutral-950 p-8 text-white"><div className="text-4xl font-black">02</div><p className="mt-3 font-semibold">Tissus & fils</p></div><div className="-mt-5 rounded-[2rem] bg-orange-600 p-8 text-white"><div className="text-4xl font-black">03</div><p className="mt-3 font-semibold">Accessoires</p></div><div className="rounded-[2rem] bg-[#eee8df] p-8"><div className="text-4xl font-black">04</div><p className="mt-3 font-semibold">Créativité</p></div></div></div></section>
++      <section className="bg-white px-6 py-24"><div className="mx-auto grid max-w-7xl gap-14 lg:grid-cols-2 lg:items-center"><div><p className="text-sm font-bold uppercase tracking-[0.25em] text-orange-600">{h.aboutEyebrow}</p><h2 className="mt-4 text-4xl font-black tracking-tight sm:text-5xl">{h.aboutTitle}</h2><p className="mt-7 leading-8 text-neutral-600">{h.aboutText1}</p><p className="mt-4 leading-8 text-neutral-600">{h.aboutText2}</p><Link href="/contact" className="mt-8 inline-flex rounded-full bg-orange-600 px-7 py-4 text-sm font-bold text-white hover:bg-neutral-950">{h.contactUs}</Link></div><div className="grid grid-cols-2 gap-5"><div className="rounded-[2rem] bg-[#f3eee7] p-8"><div className="text-4xl font-black">01</div><p className="mt-3 font-semibold">{h.pillars[0]}</p></div><div className="mt-10 rounded-[2rem] bg-neutral-950 p-8 text-white"><div className="text-4xl font-black">02</div><p className="mt-3 font-semibold">{h.pillars[1]}</p></div><div className="-mt-5 rounded-[2rem] bg-orange-600 p-8 text-white"><div className="text-4xl font-black">03</div><p className="mt-3 font-semibold">{h.pillars[2]}</p></div><div className="rounded-[2rem] bg-[#eee8df] p-8"><div className="text-4xl font-black">04</div><p className="mt-3 font-semibold">{h.pillars[3]}</p></div></div></div></section>
+ 
+-      <section className="px-6 pb-24"><div className="mx-auto max-w-7xl rounded-[2.5rem] bg-orange-600 px-8 py-16 text-center text-white shadow-2xl sm:px-16"><p className="text-sm font-bold uppercase tracking-[0.25em] text-white/70">Hurrah Mercerie</p><h2 className="mx-auto mt-4 max-w-3xl text-4xl font-black sm:text-5xl">Prêt à donner vie à votre prochaine création ?</h2><p className="mx-auto mt-5 max-w-xl text-white/80">Explorez notre univers et découvrez les produits qui vous accompagneront dans vos projets.</p><Link href="/catalogue" className="mt-8 inline-flex rounded-full bg-white px-8 py-4 font-black text-neutral-950">Découvrir nos produits</Link></div></section>
++      <section className="px-6 pb-24"><div className="mx-auto max-w-7xl rounded-[2.5rem] bg-orange-600 px-8 py-16 text-center text-white shadow-2xl sm:px-16"><p className="text-sm font-bold uppercase tracking-[0.25em] text-white/70">Hurrah Mercerie</p><h2 className="mx-auto mt-4 max-w-3xl text-4xl font-black sm:text-5xl">{h.ctaTitle}</h2><p className="mx-auto mt-5 max-w-xl text-white/80">{h.ctaText}</p><Link href="/catalogue" className="mt-8 inline-flex rounded-full bg-white px-8 py-4 font-black text-neutral-950">{h.ctaButton}</Link></div></section>
+ 
+       {featuredProducts.length > 0 && (
+         <section className="bg-[#faf8f4] px-6 py-24">
+           <div className="mx-auto max-w-7xl">
+-            <p className="text-sm font-bold uppercase tracking-[0.25em] text-orange-600">Sélection Hurrah</p>
+-            <h2 className="mt-3 text-4xl font-black tracking-tight sm:text-5xl">Produits mis en avant</h2>
++            <p className="text-sm font-bold uppercase tracking-[0.25em] text-orange-600">{h.featuredEyebrow}</p>
++            <h2 className="mt-3 text-4xl font-black tracking-tight sm:text-5xl">{h.featuredTitle}</h2>
+ 
+             <div className="mt-12 grid gap-7 sm:grid-cols-2 lg:grid-cols-3">
+               {featuredProducts.map((product: any) => (
+diff --git a/app/panier/page.tsx b/app/panier/page.tsx
+index 8486cc3..dd0bfdd 100644
+--- a/app/panier/page.tsx
++++ b/app/panier/page.tsx
+@@ -5,10 +5,13 @@ import { useEffect, useState } from "react";
+ import { formatPrice } from "@/lib/format";
+ import { supabase } from "@/lib/supabase";
+ import { useToast } from "@/components/Toast";
++import { useI18n } from "@/lib/i18n/client";
++import { tr } from "@/lib/i18n/localized";
+ 
+ type CartItem = {
+   id: string;
+   name: string;
++  name_en?: string | null;
+   price: number;
+   quantity: number;
+ };
+@@ -16,6 +19,7 @@ type CartItem = {
+ type Promo = { code: string; discount_percent: number };
+ 
+ export default function Panier() {
++  const { t, locale } = useI18n();
+   const toast = useToast();
+   const [cart, setCart] = useState<CartItem[]>([]);
+   const [promo, setPromo] = useState<Promo | null>(null);
+@@ -61,7 +65,7 @@ export default function Panier() {
+     setCheckingPromo(false);
+ 
+     if (!data || !data.active || (data.expires_at && new Date(data.expires_at) < new Date())) {
+-      toast.show("Code promo invalide ou expiré.", "error");
++      toast.show(t.cart.promoInvalid, "error");
+       return;
+     }
+ 
+@@ -69,7 +73,7 @@ export default function Panier() {
+     setPromo(applied);
+     localStorage.setItem("hurrah-promo", JSON.stringify(applied));
+     setPromoInput("");
+-    toast.show(`Code "${data.code}" appliqué : -${data.discount_percent}%`);
++    toast.show(t.cart.promoApplied(data.code, data.discount_percent));
+   }
+ 
+   function removePromo() {
+@@ -81,17 +85,17 @@ export default function Panier() {
+     <main className="min-h-screen bg-[#faf8f4] px-6 py-16">
+       <div className="mx-auto max-w-5xl">
+         <Link href="/" className="font-bold">
+-          ← Accueil
++          ← {t.common.home}
+         </Link>
+ 
+-        <h1 className="mt-8 text-5xl font-black">Votre panier</h1>
++        <h1 className="mt-8 text-5xl font-black">{t.cart.title}</h1>
+ 
+         {cart.length === 0 ? (
+           <div className="mt-10 rounded-3xl bg-white p-10">
+-            Votre panier est vide.
++            {t.cart.empty}
+             <br />
+             <Link href="/catalogue" className="mt-5 inline-block font-bold text-orange-600">
+-              Voir le catalogue →
++              {t.common.viewCatalogueArrow}
+             </Link>
+           </div>
+         ) : (
+@@ -103,8 +107,8 @@ export default function Panier() {
+                   className="flex items-center justify-between gap-4 rounded-3xl bg-white p-5"
+                 >
+                   <div>
+-                    <h2 className="font-black">{p.name}</h2>
+-                    <p className="text-orange-600">{formatPrice(p.price)}</p>
++                    <h2 className="font-black">{tr(p, "name", locale)}</h2>
++                    <p className="text-orange-600">{formatPrice(p.price, locale)}</p>
+                   </div>
+ 
+                   <div className="flex items-center gap-3">
+@@ -119,6 +123,7 @@ export default function Panier() {
+                         )
+                       }
+                       className="rounded-full border px-3"
++                      aria-label={t.cart.decrease}
+                     >
+                       −
+                     </button>
+@@ -132,6 +137,7 @@ export default function Panier() {
+                         )
+                       }
+                       className="rounded-full border px-3"
++                      aria-label={t.cart.increase}
+                     >
+                       +
+                     </button>
+@@ -139,7 +145,7 @@ export default function Panier() {
+                       onClick={() => save(cart.filter((x) => x.id !== p.id))}
+                       className="ml-3 text-sm text-red-600"
+                     >
+-                      Supprimer
++                      {t.cart.remove}
+                     </button>
+                   </div>
+                 </div>
+@@ -153,21 +159,21 @@ export default function Panier() {
+               <input
+                 value={promoInput}
+                 onChange={(e) => setPromoInput(e.target.value)}
+-                placeholder="Code promo"
++                placeholder={t.cart.promoPlaceholder}
+                 className="flex-1 rounded-2xl border px-4 py-3 text-sm"
+               />
+               <button
+                 disabled={checkingPromo}
+                 className="rounded-2xl bg-neutral-950 px-5 py-3 text-sm font-bold text-white hover:bg-orange-600 disabled:opacity-50"
+               >
+-                {checkingPromo ? "Vérification…" : "Appliquer"}
++                {checkingPromo ? t.cart.checking : t.cart.apply}
+               </button>
+ 
+               {promo && (
+                 <div className="flex w-full items-center justify-between rounded-2xl bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700">
+-                  <span>Code "{promo.code}" : -{promo.discount_percent}%</span>
++                  <span>{t.cart.promoLine(promo.code, promo.discount_percent)}</span>
+                   <button type="button" onClick={removePromo} className="text-red-600">
+-                    Retirer
++                    {t.cart.withdraw}
+                   </button>
+                 </div>
+               )}
+@@ -175,27 +181,27 @@ export default function Panier() {
+ 
+             <div className="mt-8 rounded-3xl bg-neutral-950 p-7 text-white">
+               <div className="flex justify-between text-sm text-white/60">
+-                <span>Sous-total</span>
+-                <span>{formatPrice(subtotal)}</span>
++                <span>{t.common.subtotal}</span>
++                <span>{formatPrice(subtotal, locale)}</span>
+               </div>
+ 
+               {promo && (
+                 <div className="mt-1 flex justify-between text-sm text-emerald-400">
+-                  <span>Réduction ({promo.discount_percent}%)</span>
+-                  <span>-{formatPrice(discount)}</span>
++                  <span>{t.cart.discount(promo.discount_percent)}</span>
++                  <span>-{formatPrice(discount, locale)}</span>
+                 </div>
+               )}
+ 
+               <div className="mt-3 flex justify-between border-t border-white/10 pt-3 text-xl font-black">
+-                <span>Total</span>
+-                <span>{formatPrice(total)}</span>
++                <span>{t.common.total}</span>
++                <span>{formatPrice(total, locale)}</span>
+               </div>
+ 
+               <Link
+                 href="/commande"
+                 className="mt-6 block rounded-full bg-orange-600 py-4 text-center font-bold"
+               >
+-                Passer la commande
++                {t.cart.checkout}
+               </Link>
+             </div>
+           </>
+diff --git a/app/produits/[id]/page.tsx b/app/produits/[id]/page.tsx
+index b336f99..bb3434e 100644
+--- a/app/produits/[id]/page.tsx
++++ b/app/produits/[id]/page.tsx
+@@ -7,7 +7,9 @@ import StockBadge from "@/components/StockBadge";
+ import ProductGallery from "@/components/ProductGallery";
+ import ProductCard from "@/components/ProductCard";
+ import ProductReviews from "@/components/ProductReviews";
+-import { NO_IMAGE_PLACEHOLDER } from "@/lib/placeholder";
++import { getPlaceholder } from "@/lib/placeholder";
++import { getI18n } from "@/lib/i18n/server";
++import { tr } from "@/lib/i18n/localized";
+ import SiteHeader from "@/components/SiteHeader";
+ import SiteFooter from "@/components/SiteFooter";
+ 
+@@ -15,6 +17,7 @@ type Params = { params: Promise<{ id: string }> };
+ 
+ export default async function ProductPage({ params }: Params) {
+   const { id } = await params;
++  const { t, locale } = await getI18n();
+ 
+   const { data: p } = await supabase
+     .from("products")
+@@ -31,10 +34,15 @@ export default async function ProductPage({ params }: Params) {
+     )
+     .map((img: any) => img.image_url);
+ 
+-  const mainImage = images[0] || NO_IMAGE_PLACEHOLDER;
++  const mainImage = images[0] || getPlaceholder(locale);
+   const product = { ...p, image_url: mainImage };
+ 
+-  const variants = [p.color, p.size, p.format].filter(Boolean);
++  const name = tr(p, "name", locale);
++  const description = tr(p, "description", locale);
++  const color = tr(p, "color", locale);
++  const size = tr(p, "size", locale);
++  const format = tr(p, "format", locale);
++  const variants = [color, size, format].filter(Boolean);
+ 
+   const { data: reviews } = await supabase
+     .from("product_reviews")
+@@ -69,53 +77,53 @@ export default async function ProductPage({ params }: Params) {
+       <main className="min-h-screen bg-[#faf8f4] px-6 py-16">
+         <div className="mx-auto max-w-6xl">
+           <Link href="/catalogue" className="font-bold">
+-            ← Catalogue
++            {t.product.back}
+           </Link>
+ 
+           <div className="mt-8 grid gap-12 lg:grid-cols-2">
+-            <ProductGallery images={images.length ? images : [mainImage]} name={p.name} />
++            <ProductGallery images={images.length ? images : [mainImage]} name={name} />
+ 
+             <div>
+               <div className="flex items-start justify-between gap-4">
+-                <h1 className="text-5xl font-black">{p.name}</h1>
++                <h1 className="text-5xl font-black">{name}</h1>
+                 <StockBadge stock={p.stock} />
+               </div>
+ 
+               {p.reference && (
+                 <p className="mt-2 text-sm font-semibold uppercase tracking-wide text-neutral-400">
+-                  Réf. {p.reference}
++                  {t.common.reference(p.reference)}
+                 </p>
+               )}
+ 
+               <p className="mt-6 leading-8 text-neutral-600">
+-                {p.description}
++                {description}
+               </p>
+ 
+               {variants.length > 0 && (
+                 <div className="mt-6 flex flex-wrap gap-2">
+-                  {p.color && (
++                  {color && (
+                     <span className="rounded-full bg-neutral-100 px-4 py-2 text-sm font-semibold">
+-                      Couleur : {p.color}
++                      {t.product.color}{t.common.colon} {color}
+                     </span>
+                   )}
+-                  {p.size && (
++                  {size && (
+                     <span className="rounded-full bg-neutral-100 px-4 py-2 text-sm font-semibold">
+-                      Taille : {p.size}
++                      {t.product.size}{t.common.colon} {size}
+                     </span>
+                   )}
+-                  {p.format && (
++                  {format && (
+                     <span className="rounded-full bg-neutral-100 px-4 py-2 text-sm font-semibold">
+-                      Format : {p.format}
++                      {t.product.format}{t.common.colon} {format}
+                     </span>
+                   )}
+                 </div>
+               )}
+ 
+               <p className="mt-7 text-3xl font-black text-orange-600">
+-                {formatPrice(p.price)}
++                {formatPrice(p.price, locale)}
+               </p>
+ 
+-              <p className="mt-3 text-sm text-neutral-500">Stock : {p.stock}</p>
++              <p className="mt-3 text-sm text-neutral-500">{t.product.stock(p.stock)}</p>
+ 
+               <div className="mt-8">
+                 <AddToCart product={product} />
+@@ -125,7 +133,7 @@ export default async function ProductPage({ params }: Params) {
+ 
+           {similar.length > 0 && (
+             <section className="mt-20">
+-              <h2 className="text-2xl font-black">Produits similaires</h2>
++              <h2 className="text-2xl font-black">{t.product.similar}</h2>
+ 
+               <div className="mt-6 grid gap-7 sm:grid-cols-2 lg:grid-cols-3">
+                 {similar.map((prod) => (
+diff --git a/app/suivi/page.tsx b/app/suivi/page.tsx
+index 7ea4937..e7d7891 100644
+--- a/app/suivi/page.tsx
++++ b/app/suivi/page.tsx
+@@ -5,14 +5,8 @@ import SiteHeader from "@/components/SiteHeader";
+ import SiteFooter from "@/components/SiteFooter";
+ import { supabase } from "@/lib/supabase";
+ import { formatPrice } from "@/lib/format";
+-
+-const STATUS_LABELS: Record<string, string> = {
+-  new: "Nouvelle",
+-  confirmed: "Confirmée",
+-  preparing: "En préparation",
+-  delivered: "Livrée",
+-  cancelled: "Annulée",
+-};
++import { useI18n } from "@/lib/i18n/client";
++import { formatDate } from "@/lib/i18n/config";
+ 
+ type Order = {
+   id: string;
+@@ -23,6 +17,7 @@ type Order = {
+ };
+ 
+ export default function SuiviCommande() {
++  const { t, locale } = useI18n();
+   const [phone, setPhone] = useState("");
+   const [orders, setOrders] = useState<Order[] | null>(null);
+   const [loading, setLoading] = useState(false);
+@@ -53,10 +48,10 @@ export default function SuiviCommande() {
+             Hurrah Mercerie
+           </p>
+ 
+-          <h1 className="mt-3 text-4xl font-black">Suivre ma commande</h1>
++          <h1 className="mt-3 text-4xl font-black">{t.tracking.title}</h1>
+ 
+           <p className="mt-4 text-neutral-600">
+-            Entrez le numéro de téléphone utilisé lors de votre commande.
++            {t.tracking.intro}
+           </p>
+ 
+           <form onSubmit={search} className="mt-8 flex gap-3">
+@@ -64,7 +59,7 @@ export default function SuiviCommande() {
+               required
+               value={phone}
+               onChange={(e) => setPhone(e.target.value)}
+-              placeholder="Votre numéro de téléphone"
++              placeholder={t.tracking.placeholder}
+               className="flex-1 rounded-2xl border px-5 py-4"
+             />
+ 
+@@ -72,14 +67,14 @@ export default function SuiviCommande() {
+               disabled={loading}
+               className="rounded-2xl bg-neutral-950 px-6 py-4 font-bold text-white hover:bg-orange-600 disabled:opacity-50"
+             >
+-              {loading ? "Recherche…" : "Chercher"}
++              {loading ? t.tracking.searching : t.tracking.search}
+             </button>
+           </form>
+ 
+           <div className="mt-10 space-y-4">
+             {orders !== null && orders.length === 0 && (
+               <div className="rounded-3xl bg-white p-8 text-center text-neutral-500">
+-                Aucune commande trouvée pour ce numéro.
++                {t.tracking.none}
+               </div>
+             )}
+ 
+@@ -87,11 +82,11 @@ export default function SuiviCommande() {
+               <div key={order.id} className="rounded-3xl bg-white p-6 shadow-sm">
+                 <div className="flex items-center justify-between">
+                   <span className="rounded-full bg-orange-50 px-3 py-1 text-xs font-bold text-orange-700">
+-                    {STATUS_LABELS[order.status] || order.status}
++                    {t.tracking.status[order.status] || order.status}
+                   </span>
+ 
+                   <span className="text-xs text-neutral-400">
+-                    {new Date(order.created_at).toLocaleDateString("fr-FR")}
++                    {formatDate(order.created_at, locale)}
+                   </span>
+                 </div>
+ 
+@@ -99,14 +94,14 @@ export default function SuiviCommande() {
+                   {(order.order_items || []).map((item) => (
+                     <div key={item.id} className="flex justify-between">
+                       <span>{item.quantity} × {item.product_name}</span>
+-                      <span>{formatPrice(item.price * item.quantity)}</span>
++                      <span>{formatPrice(item.price * item.quantity, locale)}</span>
+                     </div>
+                   ))}
+                 </div>
+ 
+                 <div className="mt-4 flex justify-between border-t pt-4 font-black">
+-                  <span>Total</span>
+-                  <span className="text-orange-600">{formatPrice(order.total)}</span>
++                  <span>{t.common.total}</span>
++                  <span className="text-orange-600">{formatPrice(order.total, locale)}</span>
+                 </div>
+               </div>
+             ))}
+diff --git a/components/AddToCart.tsx b/components/AddToCart.tsx
+index 5187479..2d12e65 100644
+--- a/components/AddToCart.tsx
++++ b/components/AddToCart.tsx
+@@ -2,8 +2,10 @@
+ 
+ import { useState } from "react";
+ import type { Product } from "@/lib/types";
++import { useI18n } from "@/lib/i18n/client";
+ 
+ export default function AddToCart({ product }: { product: Product }) {
++  const { t } = useI18n();
+   const [done, setDone] = useState(false);
+ 
+   function add() {
+@@ -24,7 +26,7 @@ export default function AddToCart({ product }: { product: Product }) {
+       disabled={product.stock <= 0}
+       className="w-full rounded-full bg-neutral-950 px-5 py-3 text-sm font-bold text-white transition hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-40"
+     >
+-      {product.stock <= 0 ? "Rupture de stock" : done ? "Ajouté au panier ✓" : "Ajouter au panier"}
++      {product.stock <= 0 ? t.addToCart.out : done ? t.addToCart.added : t.addToCart.add}
+     </button>
+   );
+ }
+diff --git a/components/BlogManager.tsx b/components/BlogManager.tsx
+index 4e99fcd..10b17e6 100644
+--- a/components/BlogManager.tsx
++++ b/components/BlogManager.tsx
+@@ -3,6 +3,7 @@
+ import { useState } from "react";
+ import { supabase } from "@/lib/supabase";
+ import { useToast } from "./Toast";
++import EnglishFields, { englishFromRow, englishValues } from "./EnglishFields";
+ 
+ type Post = {
+   id: string;
+@@ -12,6 +13,9 @@ type Post = {
+   content: string;
+   cover_image: string | null;
+   status: string;
++  title_en?: string | null;
++  excerpt_en?: string | null;
++  content_en?: string | null;
+ };
+ 
+ function slugify(text: string) {
+@@ -32,6 +36,13 @@ export default function BlogManager({ posts }: { posts: Post[] }) {
+   const [coverImage, setCoverImage] = useState("");
+   const [status, setStatus] = useState("published");
+   const [busy, setBusy] = useState(false);
++  const [english, setEnglish] = useState<Record<string, string>>({});
++
++  const englishFields = [
++    { key: "title_en", label: "Titre", source: title },
++    { key: "excerpt_en", label: "Résumé court", source: excerpt, multiline: true },
++    { key: "content_en", label: "Contenu complet", source: content, multiline: true },
++  ];
+ 
+   function resetForm() {
+     setEditing(null);
+@@ -40,6 +51,7 @@ export default function BlogManager({ posts }: { posts: Post[] }) {
+     setContent("");
+     setCoverImage("");
+     setStatus("published");
++    setEnglish({});
+   }
+ 
+   function edit(post: Post) {
+@@ -49,6 +61,7 @@ export default function BlogManager({ posts }: { posts: Post[] }) {
+     setContent(post.content);
+     setCoverImage(post.cover_image || "");
+     setStatus(post.status);
++    setEnglish(englishFromRow(englishFields, post));
+   }
+ 
+   async function save(e: React.FormEvent) {
+@@ -67,6 +80,7 @@ export default function BlogManager({ posts }: { posts: Post[] }) {
+       content: content.trim(),
+       cover_image: coverImage.trim() || null,
+       status,
++      ...englishValues(englishFields, english),
+     };
+ 
+     const result = editing
+@@ -144,6 +158,12 @@ export default function BlogManager({ posts }: { posts: Post[] }) {
+             <option value="published">Publié</option>
+             <option value="draft">Brouillon</option>
+           </select>
++
++          <EnglishFields
++            fields={englishFields}
++            values={english}
++            onChange={setEnglish}
++          />
+         </div>
+ 
+         <div className="mt-6 flex gap-3">
+@@ -179,7 +199,14 @@ export default function BlogManager({ posts }: { posts: Post[] }) {
+                 className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border p-4"
+               >
+                 <div>
+-                  <p className="font-bold">{post.title}</p>
++                  <p className="font-bold">
++                    {post.title}
++                    {!post.title_en?.trim() && (
++                      <span className="ml-2 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700">
++                        EN à traduire
++                      </span>
++                    )}
++                  </p>
+                   <p className="text-sm text-neutral-500">
+                     {post.status === "published" ? "Publié" : "Brouillon"} · /blog/{post.slug}
+                   </p>
+diff --git a/components/BundleManager.tsx b/components/BundleManager.tsx
+index d50cbaa..e058087 100644
+--- a/components/BundleManager.tsx
++++ b/components/BundleManager.tsx
+@@ -4,8 +4,9 @@ import { useState } from "react";
+ import { supabase } from "@/lib/supabase";
+ import { formatPrice } from "@/lib/format";
+ import { useToast } from "./Toast";
++import EnglishFields, { englishFromRow } from "./EnglishFields";
+ 
+-type BundleItem = { id: string; label: string };
++type BundleItem = { id: string; label: string; label_en?: string | null };
+ type Bundle = {
+   id: string;
+   name: string;
+@@ -13,6 +14,8 @@ type Bundle = {
+   price: number;
+   image_url: string | null;
+   status: string;
++  name_en?: string | null;
++  description_en?: string | null;
+   bundle_items?: BundleItem[];
+ };
+ 
+@@ -25,6 +28,13 @@ export default function BundleManager({ bundles }: { bundles: Bundle[] }) {
+   const [imageUrl, setImageUrl] = useState("");
+   const [itemsText, setItemsText] = useState("");
+   const [busy, setBusy] = useState(false);
++  const [english, setEnglish] = useState<Record<string, string>>({});
++
++  const englishFields = [
++    { key: "name_en", label: "Nom du kit", source: name },
++    { key: "description_en", label: "Description", source: description, multiline: true },
++    { key: "items_en", label: "Contenu du kit, un article par ligne", source: itemsText, multiline: true },
++  ];
+ 
+   function resetForm() {
+     setEditing(null);
+@@ -33,6 +43,7 @@ export default function BundleManager({ bundles }: { bundles: Bundle[] }) {
+     setPrice("");
+     setImageUrl("");
+     setItemsText("");
++    setEnglish({});
+   }
+ 
+   function edit(bundle: Bundle) {
+@@ -42,6 +53,10 @@ export default function BundleManager({ bundles }: { bundles: Bundle[] }) {
+     setPrice(String(bundle.price));
+     setImageUrl(bundle.image_url || "");
+     setItemsText((bundle.bundle_items || []).map((i) => i.label).join("\n"));
++    setEnglish({
++      ...englishFromRow(englishFields, bundle),
++      items_en: (bundle.bundle_items || []).map((i) => i.label_en || "").join("\n"),
++    });
+   }
+ 
+   async function save(e: React.FormEvent) {
+@@ -58,6 +73,8 @@ export default function BundleManager({ bundles }: { bundles: Bundle[] }) {
+       description: description.trim() || null,
+       price: Number(price),
+       image_url: imageUrl.trim() || null,
++      name_en: english.name_en?.trim() || null,
++      description_en: english.description_en?.trim() || null,
+     };
+ 
+     const result = editing
+@@ -80,10 +97,17 @@ export default function BundleManager({ bundles }: { bundles: Bundle[] }) {
+       .map((l) => l.trim())
+       .filter(Boolean);
+ 
++    // Les lignes anglaises correspondent aux lignes françaises, dans le même ordre.
++    const labelsEn = (english.items_en || "").split("\n").map((l) => l.trim());
++
+     if (labels.length) {
+-      await supabase
+-        .from("bundle_items")
+-        .insert(labels.map((label) => ({ bundle_id: bundleId, label })));
++      await supabase.from("bundle_items").insert(
++        labels.map((label, i) => ({
++          bundle_id: bundleId,
++          label,
++          label_en: labelsEn[i] || null,
++        }))
++      );
+     }
+ 
+     setBusy(false);
+@@ -151,6 +175,12 @@ export default function BundleManager({ bundles }: { bundles: Bundle[] }) {
+             placeholder={"Contenu du kit, un article par ligne :\nFil à coudre\nAiguilles\nCiseaux"}
+             className="min-h-28 w-full rounded-2xl border px-5 py-4"
+           />
++
++          <EnglishFields
++            fields={englishFields}
++            values={english}
++            onChange={setEnglish}
++          />
+         </div>
+ 
+         <div className="mt-6 flex gap-3">
+diff --git a/components/CartButton.tsx b/components/CartButton.tsx
+index 241b1a8..06a3f9f 100644
+--- a/components/CartButton.tsx
++++ b/components/CartButton.tsx
+@@ -1,8 +1,10 @@
+ "use client";
+ 
+ import { useEffect, useState } from "react";
++import { useI18n } from "@/lib/i18n/client";
+ 
+ export default function CartButton() {
++  const { t } = useI18n();
+   const [count, setCount] = useState(0);
+ 
+   useEffect(() => {
+@@ -19,5 +21,5 @@ export default function CartButton() {
+     return () => window.removeEventListener("hurrah-cart-updated", update);
+   }, []);
+ 
+-  return <span>Panier{count > 0 ? ` (${count})` : ""}</span>;
++  return <span>{t.header.cart}{count > 0 ? ` (${count})` : ""}</span>;
+ }
+diff --git a/components/CatalogueFilters.tsx b/components/CatalogueFilters.tsx
+index c342e58..e0a0b6b 100644
+--- a/components/CatalogueFilters.tsx
++++ b/components/CatalogueFilters.tsx
+@@ -2,6 +2,7 @@
+ 
+ import { useRouter } from "next/navigation";
+ import { useState } from "react";
++import { useI18n } from "@/lib/i18n/client";
+ 
+ type Props = {
+   selectedCategory: string;
+@@ -14,6 +15,7 @@ export default function CatalogueFilters({
+   searchTerm,
+   availability,
+ }: Props) {
++  const { t } = useI18n();
+   const router = useRouter();
+   const [value, setValue] = useState(searchTerm);
+ 
+@@ -60,7 +62,7 @@ export default function CatalogueFilters({
+             type="text"
+             value={value}
+             onChange={(e) => setValue(e.target.value)}
+-            placeholder="Rechercher un produit, une couleur, une référence…"
++            placeholder={t.catalogue.searchPlaceholder}
+             className="w-full bg-transparent text-sm font-medium outline-none placeholder:text-neutral-400"
+           />
+ 
+@@ -73,7 +75,7 @@ export default function CatalogueFilters({
+               }}
+               className="text-xs font-bold text-neutral-400 hover:text-neutral-700"
+             >
+-              Effacer
++              {t.catalogue.clear}
+             </button>
+           )}
+ 
+@@ -81,16 +83,16 @@ export default function CatalogueFilters({
+             type="submit"
+             className="rounded-full bg-neutral-950 px-5 py-2 text-sm font-bold text-white transition hover:bg-orange-600"
+           >
+-            Rechercher
++            {t.catalogue.search}
+           </button>
+         </div>
+       </form>
+ 
+       <div className="flex gap-2">
+         {[
+-          { key: "toutes", label: "Toute disponibilité" },
+-          { key: "disponible", label: "Disponible" },
+-          { key: "rupture", label: "Rupture" },
++          { key: "toutes", label: t.catalogue.availability.toutes },
++          { key: "disponible", label: t.catalogue.availability.disponible },
++          { key: "rupture", label: t.catalogue.availability.rupture },
+         ].map((option) => (
+           <button
+             key={option.key}
+diff --git a/components/CategoryManager.tsx b/components/CategoryManager.tsx
+index b33c9ae..7dde615 100644
+--- a/components/CategoryManager.tsx
++++ b/components/CategoryManager.tsx
+@@ -3,12 +3,15 @@
+ import { useState } from "react";
+ import { supabase } from "@/lib/supabase";
+ import { useToast } from "./Toast";
++import EnglishFields, { englishFromRow, englishValues } from "./EnglishFields";
+ 
+ type Category = {
+   id: string;
+   name: string;
+   description: string | null;
+   image_url: string | null;
++  name_en?: string | null;
++  description_en?: string | null;
+ };
+ 
+ export default function CategoryManager({
+@@ -23,12 +26,19 @@ export default function CategoryManager({
+   const [editing, setEditing] = useState<Category | null>(null);
+   const [message, setMessage] = useState("");
+   const [busy, setBusy] = useState(false);
++  const [english, setEnglish] = useState<Record<string, string>>({});
++
++  const englishFields = [
++    { key: "name_en", label: "Nom de la catégorie", source: name },
++    { key: "description_en", label: "Description", source: description, multiline: true },
++  ];
+ 
+   function resetForm() {
+     setEditing(null);
+     setName("");
+     setDescription("");
+     setImageUrl("");
++    setEnglish({});
+   }
+ 
+   function startEdit(category: Category) {
+@@ -36,6 +46,7 @@ export default function CategoryManager({
+     setName(category.name);
+     setDescription(category.description || "");
+     setImageUrl(category.image_url || "");
++    setEnglish(englishFromRow(englishFields, category));
+     setMessage("");
+   }
+ 
+@@ -52,6 +63,7 @@ export default function CategoryManager({
+       name: name.trim(),
+       description: description.trim() || null,
+       image_url: imageUrl.trim() || null,
++      ...englishValues(englishFields, english),
+     };
+ 
+     const result = editing
+@@ -121,6 +133,12 @@ export default function CategoryManager({
+             placeholder="URL image de catégorie"
+             className="w-full rounded-2xl border px-5 py-4"
+           />
++
++          <EnglishFields
++            fields={englishFields}
++            values={english}
++            onChange={setEnglish}
++          />
+         </div>
+ 
+         {message && (
+@@ -163,7 +181,14 @@ export default function CategoryManager({
+                 className="flex items-center justify-between gap-4 rounded-2xl border p-4"
+               >
+                 <div>
+-                  <p className="font-bold">{category.name}</p>
++                  <p className="font-bold">
++                    {category.name}
++                    {!category.name_en?.trim() && (
++                      <span className="ml-2 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700">
++                        EN à traduire
++                      </span>
++                    )}
++                  </p>
+                   {category.description && (
+                     <p className="text-sm text-neutral-500">
+                       {category.description}
+diff --git a/components/CategoryProducts.tsx b/components/CategoryProducts.tsx
+index 828abd3..a4332cc 100644
+--- a/components/CategoryProducts.tsx
++++ b/components/CategoryProducts.tsx
+@@ -2,10 +2,13 @@ import SiteHeader from "@/components/SiteHeader";
+ import SiteFooter from "@/components/SiteFooter";
+ import ProductCard from "@/components/ProductCard";
+ import { supabase } from "@/lib/supabase";
++import { getI18n } from "@/lib/i18n/server";
++import { tr } from "@/lib/i18n/localized";
+ 
+ export default async function CategoryProducts({name,slug}:{name:string;slug:string}) {
++  const { t, locale } = await getI18n();
+   const {data:cat}=await supabase.from("categories").select("*").ilike("name",slug).maybeSingle();
+   const {data}=cat?await supabase.from("products").select("*, product_images(image_url, display_order)").eq("category_id",cat.id).eq("status","published"):await supabase.from("products").select("*, product_images(image_url, display_order)").eq("status","published").ilike("name",`%${name}%`);
+   const products=(data||[]).map((p:any)=>({...p,image_url:p.product_images?.sort((a:any,b:any)=>(a.display_order||0)-(b.display_order||0))[0]?.image_url||null}));
+-  return <><SiteHeader/><main className="min-h-screen bg-[#faf8f4] px-6 py-16"><div className="mx-auto max-w-7xl"><p className="text-sm font-bold uppercase tracking-[0.25em] text-orange-600">Catégorie</p><h1 className="mt-3 text-5xl font-black">{name}</h1><div className="mt-12 grid gap-7 sm:grid-cols-2 lg:grid-cols-3">{products.length?products.map((p:any)=><ProductCard key={p.id} product={p}/>):<div className="rounded-3xl bg-white p-10">Aucun produit publié dans cette catégorie pour le moment.</div>}</div></div></main><SiteFooter/></>;
++  return <><SiteHeader/><main className="min-h-screen bg-[#faf8f4] px-6 py-16"><div className="mx-auto max-w-7xl"><p className="text-sm font-bold uppercase tracking-[0.25em] text-orange-600">{t.catalogue.categoryEyebrow}</p><h1 className="mt-3 text-5xl font-black">{cat ? tr(cat, "name", locale) : name}</h1><div className="mt-12 grid gap-7 sm:grid-cols-2 lg:grid-cols-3">{products.length?products.map((p:any)=><ProductCard key={p.id} product={p}/>):<div className="rounded-3xl bg-white p-10">{t.catalogue.emptyCategory}</div>}</div></div></main><SiteFooter/></>;
+ }
+diff --git a/components/ContactForm.tsx b/components/ContactForm.tsx
+index 8dfca83..bdd90e0 100644
+--- a/components/ContactForm.tsx
++++ b/components/ContactForm.tsx
+@@ -2,8 +2,10 @@
+ 
+ import { useState } from "react";
+ import { buildWhatsAppLink } from "@/lib/site-config";
++import { useI18n } from "@/lib/i18n/client";
+ 
+ export default function ContactForm() {
++  const { t } = useI18n();
+   const [name, setName] = useState("");
+   const [phone, setPhone] = useState("");
+   const [message, setMessage] = useState("");
+@@ -13,16 +15,16 @@ export default function ContactForm() {
+     e.preventDefault();
+ 
+     if (!name.trim() || !phone.trim() || !message.trim()) {
+-      setError("Merci de remplir tous les champs.");
++      setError(t.contact.fillAll);
+       return;
+     }
+ 
+     setError("");
+ 
+     const text = [
+-      "Bonjour Hurrah Mercerie,",
+-      `Nom : ${name}`,
+-      `Téléphone : ${phone}`,
++      t.contact.wa.greeting,
++      `${t.contact.wa.name} ${name}`,
++      `${t.contact.wa.phone} ${phone}`,
+       "",
+       message,
+     ].join("\n");
+@@ -37,7 +39,7 @@ export default function ContactForm() {
+         value={name}
+         onChange={(e) => setName(e.target.value)}
+         className="w-full rounded-2xl border px-5 py-4"
+-        placeholder="Votre nom"
++        placeholder={t.contact.name}
+       />
+ 
+       <input
+@@ -45,7 +47,7 @@ export default function ContactForm() {
+         value={phone}
+         onChange={(e) => setPhone(e.target.value)}
+         className="w-full rounded-2xl border px-5 py-4"
+-        placeholder="Votre téléphone"
++        placeholder={t.contact.phone}
+       />
+ 
+       <textarea
+@@ -53,7 +55,7 @@ export default function ContactForm() {
+         value={message}
+         onChange={(e) => setMessage(e.target.value)}
+         className="min-h-40 w-full rounded-2xl border px-5 py-4"
+-        placeholder="Votre message"
++        placeholder={t.contact.message}
+       />
+ 
+       {error && (
+@@ -63,7 +65,7 @@ export default function ContactForm() {
+       )}
+ 
+       <button className="rounded-full bg-neutral-950 px-7 py-4 font-bold text-white hover:bg-orange-600">
+-        Envoyer sur WhatsApp
++        {t.contact.send}
+       </button>
+     </form>
+   );
+diff --git a/components/EnglishFields.tsx b/components/EnglishFields.tsx
+new file mode 100644
+index 0000000..39d3e64
+--- /dev/null
++++ b/components/EnglishFields.tsx
+@@ -0,0 +1,129 @@
++"use client";
++
++import { useState } from "react";
++
++export type EnglishField = {
++  /** Nom de la colonne anglaise, ex. "name_en" */
++  key: string;
++  label: string;
++  /** Valeur française correspondante (sert de source à la traduction auto) */
++  source: string;
++  multiline?: boolean;
++};
++
++/**
++ * Bloc « Version anglaise » pour les formulaires admin.
++ * Les champs sont facultatifs : vides, le site affiche le français.
++ */
++export default function EnglishFields({
++  fields,
++  values,
++  onChange,
++}: {
++  fields: EnglishField[];
++  values: Record<string, string>;
++  onChange: (next: Record<string, string>) => void;
++}) {
++  const [busy, setBusy] = useState(false);
++  const [error, setError] = useState("");
++  const filled = fields.filter((f) => values[f.key]?.trim()).length;
++
++  async function autoTranslate() {
++    const todo = fields.filter((f) => f.source.trim());
++    if (todo.length === 0) {
++      setError("Remplissez d'abord les champs en français.");
++      return;
++    }
++
++    setBusy(true);
++    setError("");
++
++    try {
++      const res = await fetch("/api/translate", {
++        method: "POST",
++        headers: { "Content-Type": "application/json" },
++        body: JSON.stringify({ texts: todo.map((f) => f.source) }),
++      });
++      const data = await res.json();
++
++      if (!res.ok) {
++        setError(data.error || "La traduction a échoué.");
++        return;
++      }
++
++      const next = { ...values };
++      todo.forEach((f, i) => {
++        next[f.key] = data.translations[i] ?? "";
++      });
++      onChange(next);
++    } catch {
++      setError("La traduction a échoué. Vérifiez votre connexion.");
++    } finally {
++      setBusy(false);
++    }
++  }
++
++  return (
++    <details className="rounded-2xl border border-dashed p-4" open={filled > 0}>
++      <summary className="cursor-pointer select-none text-sm font-black">
++        🇬🇧 Version anglaise{" "}
++        <span className="font-semibold text-neutral-400">
++          ({filled}/{fields.length} — facultatif)
++        </span>
++      </summary>
++
++      <div className="mt-4 space-y-3">
++        {fields.map((f) =>
++          f.multiline ? (
++            <textarea
++              key={f.key}
++              value={values[f.key] || ""}
++              onChange={(e) => onChange({ ...values, [f.key]: e.target.value })}
++              placeholder={`${f.label} (EN)`}
++              className="min-h-24 w-full rounded-2xl border px-4 py-3 text-sm"
++            />
++          ) : (
++            <input
++              key={f.key}
++              value={values[f.key] || ""}
++              onChange={(e) => onChange({ ...values, [f.key]: e.target.value })}
++              placeholder={`${f.label} (EN)`}
++              className="w-full rounded-2xl border px-4 py-3 text-sm"
++            />
++          )
++        )}
++
++        <button
++          type="button"
++          onClick={autoTranslate}
++          disabled={busy}
++          className="w-full rounded-full border-2 border-neutral-950 py-2.5 text-sm font-bold hover:bg-neutral-950 hover:text-white disabled:opacity-50"
++        >
++          {busy ? "Traduction…" : "Traduire automatiquement depuis le français"}
++        </button>
++
++        <p className="text-xs text-neutral-500">
++          Relisez toujours le résultat : les termes de mercerie sont parfois mal traduits.
++        </p>
++
++        {error && (
++          <p className="rounded-xl bg-red-50 p-3 text-xs font-semibold text-red-600">{error}</p>
++        )}
++      </div>
++    </details>
++  );
++}
++
++/** Transforme les valeurs du formulaire en colonnes Supabase (vide → null). */
++export function englishValues(fields: EnglishField[], values: Record<string, string>) {
++  return Object.fromEntries(
++    fields.map((f) => [f.key, values[f.key]?.trim() || null])
++  );
++}
++
++/** Reprend les valeurs anglaises d'une ligne Supabase existante. */
++export function englishFromRow(fields: EnglishField[], row: Record<string, unknown>) {
++  return Object.fromEntries(
++    fields.map((f) => [f.key, typeof row[f.key] === "string" ? (row[f.key] as string) : ""])
++  );
++}
+diff --git a/components/LanguageSwitcher.tsx b/components/LanguageSwitcher.tsx
+new file mode 100644
+index 0000000..90312a7
+--- /dev/null
++++ b/components/LanguageSwitcher.tsx
+@@ -0,0 +1,57 @@
++"use client";
++
++import { useTransition } from "react";
++import { useRouter } from "next/navigation";
++import { setLocale } from "@/app/actions/locale";
++import { useI18n } from "@/lib/i18n/client";
++import { LOCALES, type Locale } from "@/lib/i18n/config";
++
++export default function LanguageSwitcher({
++  variant = "light",
++}: {
++  variant?: "light" | "dark";
++}) {
++  const { locale, t } = useI18n();
++  const router = useRouter();
++  const [pending, startTransition] = useTransition();
++
++  function change(next: Locale) {
++    if (next === locale || pending) return;
++    startTransition(async () => {
++      await setLocale(next);
++      router.refresh();
++    });
++  }
++
++  const idle =
++    variant === "dark"
++      ? "text-white/60 hover:text-white"
++      : "text-neutral-500 hover:text-neutral-950";
++  const active =
++    variant === "dark" ? "bg-white text-neutral-950" : "bg-neutral-950 text-white";
++
++  return (
++    <div
++      role="group"
++      aria-label={t.language.label}
++      className={`flex items-center rounded-full border p-0.5 text-xs font-bold ${
++        variant === "dark" ? "border-white/20" : "border-neutral-200"
++      } ${pending ? "opacity-60" : ""}`}
++    >
++      {LOCALES.map((l) => (
++        <button
++          key={l}
++          type="button"
++          onClick={() => change(l)}
++          aria-pressed={locale === l}
++          title={t.language.names[l]}
++          className={`rounded-full px-2.5 py-1 uppercase transition ${
++            locale === l ? active : idle
++          }`}
++        >
++          {l}
++        </button>
++      ))}
++    </div>
++  );
++}
+diff --git a/components/MachineDetail.tsx b/components/MachineDetail.tsx
+index 3ca4791..401a97e 100644
+--- a/components/MachineDetail.tsx
++++ b/components/MachineDetail.tsx
+@@ -1,4 +1,14 @@
+ import Link from "next/link";
+ import SiteHeader from "./SiteHeader";
+ import SiteFooter from "./SiteFooter";
+-export default function MachineDetail({name,image,type}:{name:string;image:string;type:string}){return <><SiteHeader/><main className="min-h-screen bg-[#faf8f4] px-6 py-16"><div className="mx-auto grid max-w-6xl gap-12 lg:grid-cols-2 lg:items-center"><div className="relative h-[500px] rounded-[2rem] bg-white shadow"><img src={image} alt={name} className="h-full w-full object-contain p-10"/></div><div><span className="rounded-full bg-orange-100 px-4 py-2 text-sm font-bold text-orange-700">{type}</span><h1 className="mt-6 text-5xl font-black">{name}</h1><p className="mt-6 text-lg leading-8 text-neutral-600">Une machine proposée par Hurrah Mercerie pour accompagner vos travaux de couture.</p><p className="mt-7 text-2xl font-black text-orange-600">80 000 – 90 000 FCFA</p><Link href="/contact" className="mt-8 inline-block rounded-full bg-neutral-950 px-7 py-4 font-bold text-white hover:bg-orange-600">Demander des informations</Link></div></div></main><SiteFooter/></>}
++import { getI18n } from "@/lib/i18n/server";
++import { formatPrice } from "@/lib/format";
++
++type MachineKey = "singer" | "butterfly";
++
++export default async function MachineDetail({ machine, image }: { machine: MachineKey; image: string }) {
++  const { t, locale } = await getI18n();
++  const { name, type } = t.machines.items[machine];
++
++  return <><SiteHeader/><main className="min-h-screen bg-[#faf8f4] px-6 py-16"><div className="mx-auto grid max-w-6xl gap-12 lg:grid-cols-2 lg:items-center"><div className="relative h-[500px] rounded-[2rem] bg-white shadow"><img src={image} alt={name} className="h-full w-full object-contain p-10"/></div><div><span className="rounded-full bg-orange-100 px-4 py-2 text-sm font-bold text-orange-700">{type}</span><h1 className="mt-6 text-5xl font-black">{name}</h1><p className="mt-6 text-lg leading-8 text-neutral-600">{t.machines.detailText}</p><p className="mt-7 text-2xl font-black text-orange-600">{formatPrice(80000, locale)} – {formatPrice(90000, locale)}</p><Link href="/contact" className="mt-8 inline-block rounded-full bg-neutral-950 px-7 py-4 font-bold text-white hover:bg-orange-600">{t.machines.askInfo}</Link></div></div></main><SiteFooter/></>;
++}
+diff --git a/components/ProductCard.tsx b/components/ProductCard.tsx
+index fc22b69..e1f0e3e 100644
+--- a/components/ProductCard.tsx
++++ b/components/ProductCard.tsx
+@@ -1,3 +1,5 @@
++"use client";
++
+ import Image from "next/image";
+ import Link from "next/link";
+ import AddToCart from "./AddToCart";
+@@ -5,7 +7,9 @@ import StockBadge from "./StockBadge";
+ import WishlistButton from "./WishlistButton";
+ import QuickView from "./QuickView";
+ import { formatPrice } from "@/lib/format";
+-import { NO_IMAGE_PLACEHOLDER } from "@/lib/placeholder";
++import { getPlaceholder } from "@/lib/placeholder";
++import { useI18n } from "@/lib/i18n/client";
++import { tr } from "@/lib/i18n/localized";
+ import type { Product } from "@/lib/types";
+ 
+ export default function ProductCard({
+@@ -13,7 +17,10 @@ export default function ProductCard({
+ }: {
+   product: Product;
+ }) {
++  const { t, locale } = useI18n();
+   const image = product.image_url;
++  const name = tr(product, "name", locale);
++  const description = tr(product, "description", locale);
+ 
+   return (
+     <article className="group overflow-hidden rounded-[1.75rem] bg-white shadow-sm transition hover:-translate-y-1 hover:shadow-xl">
+@@ -23,15 +30,15 @@ export default function ProductCard({
+             {image ? (
+               <Image
+                 src={image}
+-                alt={product.name}
++                alt={name}
+                 fill
+                 className="object-contain p-6 transition duration-300 group-hover:scale-110"
+                 sizes="(max-width: 768px) 100vw, 33vw"
+               />
+             ) : (
+               <img
+-                src={NO_IMAGE_PLACEHOLDER}
+-                alt={product.name}
++                src={getPlaceholder(locale)}
++                alt={name}
+                 className="h-full w-full object-contain p-6 transition duration-300 group-hover:scale-110"
+               />
+             )}
+@@ -48,24 +55,24 @@ export default function ProductCard({
+       <div className="p-6">
+         <div className="flex items-start justify-between gap-3">
+           <h3 className="text-xl font-black">
+-            {product.name}
++            {name}
+           </h3>
+ 
+           <StockBadge stock={product.stock} />
+         </div>
+ 
+         <p className="mt-2 line-clamp-2 text-sm text-neutral-500">
+-          {product.description || "Produit Hurrah Mercerie."}
++          {description || t.common.defaultProductDescription}
+         </p>
+ 
+         {product.reference && (
+           <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-neutral-400">
+-            Réf. {product.reference}
++            {t.common.reference(product.reference)}
+           </p>
+         )}
+ 
+         <p className="mt-4 text-xl font-black text-orange-600">
+-          {formatPrice(product.price)}
++          {formatPrice(product.price, locale)}
+         </p>
+ 
+         <div className="mt-4">
+diff --git a/components/ProductManager.tsx b/components/ProductManager.tsx
+index a5559b4..61a8682 100644
+--- a/components/ProductManager.tsx
++++ b/components/ProductManager.tsx
+@@ -4,6 +4,7 @@ import { useState } from "react";
+ import { supabase } from "@/lib/supabase";
+ import { formatPrice } from "@/lib/format";
+ import { useToast } from "./Toast";
++import EnglishFields, { englishFromRow, englishValues } from "./EnglishFields";
+ 
+ type Category = {
+   id: string;
+@@ -29,6 +30,11 @@ type Product = {
+   color?: string | null;
+   size?: string | null;
+   format?: string | null;
++  name_en?: string | null;
++  description_en?: string | null;
++  color_en?: string | null;
++  size_en?: string | null;
++  format_en?: string | null;
+   product_images?: ProductImage[];
+ };
+ 
+@@ -53,6 +59,15 @@ export default function ProductManager({
+   const [size, setSize] = useState("");
+   const [format, setFormat] = useState("");
+   const [newImageUrl, setNewImageUrl] = useState("");
++  const [english, setEnglish] = useState<Record<string, string>>({});
++
++  const englishFields = [
++    { key: "name_en", label: "Nom du produit", source: name },
++    { key: "description_en", label: "Description", source: description, multiline: true },
++    { key: "color_en", label: "Couleur", source: color },
++    { key: "size_en", label: "Taille", source: size },
++    { key: "format_en", label: "Format", source: format },
++  ];
+   const [message, setMessage] = useState("");
+   const [busy, setBusy] = useState(false);
+ 
+@@ -70,6 +85,7 @@ export default function ProductManager({
+     setSize("");
+     setFormat("");
+     setNewImageUrl("");
++    setEnglish({});
+   }
+ 
+   function editProduct(product: Product) {
+@@ -85,6 +101,7 @@ export default function ProductManager({
+     setColor(product.color || "");
+     setSize(product.size || "");
+     setFormat(product.format || "");
++    setEnglish(englishFromRow(englishFields, product));
+     setMessage("");
+     window.scrollTo({ top: 0, behavior: "smooth" });
+   }
+@@ -112,6 +129,7 @@ export default function ProductManager({
+       color: color.trim() || null,
+       size: size.trim() || null,
+       format: format.trim() || null,
++      ...englishValues(englishFields, english),
+       updated_at: new Date().toISOString(),
+     };
+ 
+@@ -341,6 +359,12 @@ export default function ProductManager({
+ 
+             <span className="font-semibold">Produit mis en avant</span>
+           </label>
++
++          <EnglishFields
++            fields={englishFields}
++            values={english}
++            onChange={setEnglish}
++          />
+         </div>
+ 
+         {editing && (
+@@ -452,7 +476,14 @@ export default function ProductManager({
+                 className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border p-4"
+               >
+                 <div>
+-                  <p className="font-bold">{product.name}</p>
++                  <p className="font-bold">
++                    {product.name}
++                    {!product.name_en?.trim() && (
++                    <span className="ml-2 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700">
++                      EN à traduire
++                    </span>
++                  )}
++                  </p>
+                   <p className="text-sm text-neutral-500">
+                     {formatPrice(product.price)} · Stock {product.stock} ·{" "}
+                     <span
+diff --git a/components/ProductReviews.tsx b/components/ProductReviews.tsx
+index cdabb05..6232606 100644
+--- a/components/ProductReviews.tsx
++++ b/components/ProductReviews.tsx
+@@ -3,6 +3,8 @@
+ import { useState } from "react";
+ import { supabase } from "@/lib/supabase";
+ import { useToast } from "./Toast";
++import { useI18n } from "@/lib/i18n/client";
++import { formatDate } from "@/lib/i18n/config";
+ 
+ type Review = {
+   id: string;
+@@ -39,6 +41,7 @@ export default function ProductReviews({
+   productId: string;
+   reviews: Review[];
+ }) {
++  const { t, locale } = useI18n();
+   const toast = useToast();
+   const [name, setName] = useState("");
+   const [rating, setRating] = useState(5);
+@@ -70,7 +73,7 @@ export default function ProductReviews({
+       return;
+     }
+ 
+-    toast.show("Merci pour votre avis !");
++    toast.show(t.reviews.thanksToast);
+     setSubmitted(true);
+     setName("");
+     setComment("");
+@@ -80,13 +83,13 @@ export default function ProductReviews({
+   return (
+     <section className="mt-20">
+       <div className="flex flex-wrap items-center gap-4">
+-        <h2 className="text-2xl font-black">Avis clients</h2>
++        <h2 className="text-2xl font-black">{t.reviews.title}</h2>
+ 
+         {reviews.length > 0 && (
+           <div className="flex items-center gap-2">
+             <Stars value={Math.round(average)} />
+             <span className="text-sm font-bold text-neutral-600">
+-              {average.toFixed(1)}/5 · {reviews.length} avis
++              {average.toFixed(1)}/5 · {t.reviews.count(reviews.length)}
+             </span>
+           </div>
+         )}
+@@ -96,7 +99,7 @@ export default function ProductReviews({
+         <div className="space-y-4">
+           {reviews.length === 0 ? (
+             <p className="text-neutral-500">
+-              Aucun avis pour ce produit pour le moment.
++              {t.reviews.none}
+             </p>
+           ) : (
+             reviews.map((review) => (
+@@ -111,7 +114,7 @@ export default function ProductReviews({
+                 )}
+ 
+                 <p className="mt-2 text-xs text-neutral-400">
+-                  {new Date(review.created_at).toLocaleDateString("fr-FR")}
++                  {formatDate(review.created_at, locale)}
+                 </p>
+               </div>
+             ))
+@@ -119,11 +122,11 @@ export default function ProductReviews({
+         </div>
+ 
+         <div className="rounded-2xl bg-white p-6 shadow-sm">
+-          <h3 className="font-black">Laisser un avis</h3>
++          <h3 className="font-black">{t.reviews.leave}</h3>
+ 
+           {submitted ? (
+             <p className="mt-4 text-sm font-semibold text-emerald-600">
+-              Merci, votre avis a été publié !
++              {t.reviews.thanksPublished}
+             </p>
+           ) : (
+             <form onSubmit={submit} className="mt-4 space-y-3">
+@@ -131,7 +134,7 @@ export default function ProductReviews({
+                 required
+                 value={name}
+                 onChange={(e) => setName(e.target.value)}
+-                placeholder="Votre nom"
++                placeholder={t.reviews.namePlaceholder}
+                 className="w-full rounded-xl border px-4 py-3 text-sm"
+               />
+ 
+@@ -141,6 +144,7 @@ export default function ProductReviews({
+                     key={n}
+                     type="button"
+                     onClick={() => setRating(n)}
++                    aria-label={t.reviews.starLabel(n)}
+                     className="text-amber-400"
+                   >
+                     <svg
+@@ -160,7 +164,7 @@ export default function ProductReviews({
+               <textarea
+                 value={comment}
+                 onChange={(e) => setComment(e.target.value)}
+-                placeholder="Votre commentaire (optionnel)"
++                placeholder={t.reviews.commentPlaceholder}
+                 className="min-h-24 w-full rounded-xl border px-4 py-3 text-sm"
+               />
+ 
+@@ -168,7 +172,7 @@ export default function ProductReviews({
+                 disabled={busy}
+                 className="w-full rounded-full bg-neutral-950 py-3 text-sm font-bold text-white hover:bg-orange-600 disabled:opacity-50"
+               >
+-                {busy ? "Envoi…" : "Publier mon avis"}
++                {busy ? t.reviews.sending : t.reviews.publish}
+               </button>
+             </form>
+           )}
+diff --git a/components/QuickView.tsx b/components/QuickView.tsx
+index 726f400..f6d5ad9 100644
+--- a/components/QuickView.tsx
++++ b/components/QuickView.tsx
+@@ -5,12 +5,17 @@ import Link from "next/link";
+ import AddToCart from "./AddToCart";
+ import StockBadge from "./StockBadge";
+ import { formatPrice } from "@/lib/format";
+-import { NO_IMAGE_PLACEHOLDER } from "@/lib/placeholder";
++import { getPlaceholder } from "@/lib/placeholder";
++import { useI18n } from "@/lib/i18n/client";
++import { tr } from "@/lib/i18n/localized";
+ import type { Product } from "@/lib/types";
+ 
+ export default function QuickView({ product }: { product: Product }) {
++  const { t, locale } = useI18n();
+   const [open, setOpen] = useState(false);
+-  const image = product.image_url || NO_IMAGE_PLACEHOLDER;
++  const image = product.image_url || getPlaceholder(locale);
++  const name = tr(product, "name", locale);
++  const description = tr(product, "description", locale);
+ 
+   return (
+     <>
+@@ -23,7 +28,7 @@ export default function QuickView({ product }: { product: Product }) {
+         }}
+         className="absolute bottom-3 left-1/2 -translate-x-1/2 translate-y-2 rounded-full bg-neutral-950/90 px-4 py-2 text-xs font-bold text-white opacity-0 shadow-lg backdrop-blur transition duration-200 group-hover:translate-y-0 group-hover:opacity-100"
+       >
+-        Vue rapide
++        {t.product.quickView}
+       </button>
+ 
+       {open && (
+@@ -38,7 +43,7 @@ export default function QuickView({ product }: { product: Product }) {
+             <button
+               onClick={() => setOpen(false)}
+               className="absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-full bg-neutral-100 font-bold text-neutral-500 hover:bg-neutral-950 hover:text-white"
+-              aria-label="Fermer"
++              aria-label={t.product.close}
+             >
+               ✕
+             </button>
+@@ -46,29 +51,29 @@ export default function QuickView({ product }: { product: Product }) {
+             <div className="relative h-64 rounded-2xl bg-neutral-50 sm:h-full">
+               <img
+                 src={image}
+-                alt={product.name}
++                alt={name}
+                 className="h-full w-full object-contain p-6"
+               />
+             </div>
+ 
+             <div>
+               <div className="flex items-start justify-between gap-3">
+-                <h2 className="text-2xl font-black">{product.name}</h2>
++                <h2 className="text-2xl font-black">{name}</h2>
+                 <StockBadge stock={product.stock} />
+               </div>
+ 
+               {product.reference && (
+                 <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-neutral-400">
+-                  Réf. {product.reference}
++                  {t.common.reference(product.reference)}
+                 </p>
+               )}
+ 
+               <p className="mt-4 text-sm leading-6 text-neutral-600">
+-                {product.description || "Produit Hurrah Mercerie."}
++                {description || t.common.defaultProductDescription}
+               </p>
+ 
+               <p className="mt-5 text-2xl font-black text-orange-600">
+-                {formatPrice(product.price)}
++                {formatPrice(product.price, locale)}
+               </p>
+ 
+               <div className="mt-6">
+@@ -79,7 +84,7 @@ export default function QuickView({ product }: { product: Product }) {
+                 href={`/produits/${product.id}`}
+                 className="mt-4 block text-center text-sm font-bold text-neutral-500 hover:text-neutral-950"
+               >
+-                Voir la fiche complète →
++                {t.product.fullPage}
+               </Link>
+             </div>
+           </div>
+diff --git a/components/SiteFooter.tsx b/components/SiteFooter.tsx
+index 0bc7cc1..635851b 100644
+--- a/components/SiteFooter.tsx
++++ b/components/SiteFooter.tsx
+@@ -1,31 +1,41 @@
++"use client";
++
+ import Link from "next/link";
+ import { SITE_CONTACT, buildWhatsAppLink } from "@/lib/site-config";
++import { useI18n } from "@/lib/i18n/client";
++import LanguageSwitcher from "./LanguageSwitcher";
+ 
+ export default function SiteFooter() {
++  const { t } = useI18n();
++  const l = t.footer.links;
++
+   return (
+     <footer className="bg-neutral-950 px-6 py-12 text-white">
+       <div className="mx-auto grid max-w-7xl gap-10 md:grid-cols-3">
+         <div>
+           <div className="text-2xl font-black">HURRAH<span className="text-orange-500">.</span></div>
+           <p className="mt-3 max-w-sm text-sm leading-6 text-white/50">
+-            Machines à coudre, tissus, fils et accessoires pour donner vie à vos créations.
++            {t.footer.about}
+           </p>
++          <div className="mt-6 inline-block">
++            <LanguageSwitcher variant="dark" />
++          </div>
+         </div>
+         <div>
+-          <h3 className="font-bold">Navigation</h3>
++          <h3 className="font-bold">{t.footer.navigation}</h3>
+           <div className="mt-4 space-y-3 text-sm text-white/50">
+-            <Link className="block hover:text-white" href="/">Accueil</Link>
+-            <Link className="block hover:text-white" href="/catalogue">Catalogue</Link>
+-            <Link className="block hover:text-white" href="/kits">Kits couture</Link>
+-            <Link className="block hover:text-white" href="/blog">Conseils couture</Link>
+-            <Link className="block hover:text-white" href="/machines">Machines</Link>
+-            <Link className="block hover:text-white" href="/a-propos">À propos</Link>
+-            <Link className="block hover:text-white" href="/contact">Contact</Link>
+-            <Link className="block hover:text-white" href="/suivi">Suivre ma commande</Link>
++            <Link className="block hover:text-white" href="/">{l.home}</Link>
++            <Link className="block hover:text-white" href="/catalogue">{l.catalogue}</Link>
++            <Link className="block hover:text-white" href="/kits">{l.kits}</Link>
++            <Link className="block hover:text-white" href="/blog">{l.blog}</Link>
++            <Link className="block hover:text-white" href="/machines">{l.machines}</Link>
++            <Link className="block hover:text-white" href="/a-propos">{l.about}</Link>
++            <Link className="block hover:text-white" href="/contact">{l.contact}</Link>
++            <Link className="block hover:text-white" href="/suivi">{l.tracking}</Link>
+           </div>
+         </div>
+         <div>
+-          <h3 className="font-bold">Contact</h3>
++          <h3 className="font-bold">{t.footer.contact}</h3>
+           <p className="mt-4 text-sm leading-7 text-white/50">
+             {SITE_CONTACT.phoneDisplay}
+           </p>
+@@ -33,16 +43,16 @@ export default function SiteFooter() {
+             {SITE_CONTACT.address}
+           </p>
+           <a
+-            href={buildWhatsAppLink("Bonjour Hurrah Mercerie, j'ai une question.")}
++            href={buildWhatsAppLink(t.footer.whatsappMessage)}
+             target="_blank"
+             className="mt-4 inline-block rounded-full bg-orange-600 px-5 py-2 text-sm font-bold hover:bg-orange-500"
+           >
+-            Écrire sur WhatsApp
++            {t.footer.whatsappButton}
+           </a>
+         </div>
+       </div>
+       <div className="mx-auto mt-12 max-w-7xl border-t border-white/10 pt-6 text-xs text-white/40">
+-        © {new Date().getFullYear()} Hurrah Mercerie. Tous droits réservés.
++        © {new Date().getFullYear()} Hurrah Mercerie. {t.footer.rights}
+       </div>
+     </footer>
+   );
+diff --git a/components/SiteHeader.tsx b/components/SiteHeader.tsx
+index 70ce1e3..a22f9ff 100644
+--- a/components/SiteHeader.tsx
++++ b/components/SiteHeader.tsx
+@@ -1,49 +1,56 @@
++"use client";
++
+ import Link from "next/link";
+ import CartButton from "./CartButton";
++import LanguageSwitcher from "./LanguageSwitcher";
++import { useI18n } from "@/lib/i18n/client";
+ 
+ export default function SiteHeader() {
++  const { t } = useI18n();
++
+   return (
+     <>
+       <div className="bg-neutral-950 px-6 py-2 text-center text-xs font-medium text-white">
+-        Votre univers couture, mercerie et machines à coudre
++        {t.header.tagline}
+       </div>
+       <header className="sticky top-0 z-50 border-b border-black/5 bg-white/95 backdrop-blur">
+-        <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-5">
++        <div className="mx-auto flex max-w-7xl items-center justify-between gap-6 px-6 py-5">
+           <Link href="/" className="group">
+             <div className="text-2xl font-black tracking-tight">
+               HURRAH<span className="text-orange-600">.</span>
+             </div>
+             <div className="text-[10px] font-semibold uppercase tracking-[0.3em] text-neutral-500">
+-              Mercerie
++              {t.header.brandSub}
+             </div>
+           </Link>
+-          <nav className="hidden items-center gap-7 text-sm font-semibold md:flex">
+-            <Link href="/">Accueil</Link>
+-            <Link href="/catalogue">Catalogue</Link>
+-            <Link href="/kits">Kits</Link>
+-            <Link href="/machines">Machines</Link>
+-            <Link href="/blog">Conseils</Link>
+-            <Link href="/a-propos">À propos</Link>
+-            <Link href="/contact">Contact</Link>
++          <nav className="hidden items-center gap-5 whitespace-nowrap text-sm font-semibold md:flex xl:gap-7">
++            <Link href="/">{t.header.nav.home}</Link>
++            <Link href="/catalogue">{t.header.nav.catalogue}</Link>
++            <Link href="/kits">{t.header.nav.kits}</Link>
++            <Link href="/machines">{t.header.nav.machines}</Link>
++            <Link href="/blog">{t.header.nav.blog}</Link>
++            <Link href="/a-propos">{t.header.nav.about}</Link>
++            <Link href="/contact">{t.header.nav.contact}</Link>
+           </nav>
+-          <div className="flex items-center gap-3">
++          <div className="flex items-center gap-3 whitespace-nowrap">
++            <LanguageSwitcher />
+             <Link
+               href="/favoris"
+               className="hidden rounded-full border px-4 py-2 text-sm font-bold sm:block"
+             >
+-              Favoris
++              {t.header.favorites}
+             </Link>
+             <Link
+               href="/suivi"
+-              className="hidden rounded-full border px-4 py-2 text-sm font-bold lg:block"
++              className="hidden rounded-full border px-4 py-2 text-sm font-bold xl:block"
+             >
+-              Suivi commande
++              {t.header.tracking}
+             </Link>
+             <Link href="/panier" className="rounded-full border px-4 py-2 text-sm font-bold">
+               <CartButton />
+             </Link>
+-            <Link href="/catalogue" className="hidden rounded-full bg-neutral-950 px-5 py-3 text-sm font-bold text-white sm:block">
+-              Découvrir
++            <Link href="/catalogue" className="hidden rounded-full bg-neutral-950 px-5 py-3 text-sm font-bold text-white 2xl:block">
++              {t.header.discover}
+             </Link>
+           </div>
+         </div>
+diff --git a/components/SocialGallery.tsx b/components/SocialGallery.tsx
+index 0c85781..786a5cd 100644
+--- a/components/SocialGallery.tsx
++++ b/components/SocialGallery.tsx
+@@ -1,6 +1,9 @@
+ import { supabase } from "@/lib/supabase";
++import { getI18n } from "@/lib/i18n/server";
++import { tr } from "@/lib/i18n/localized";
+ 
+ export default async function SocialGallery() {
++  const { t, locale } = await getI18n();
+   const { data: posts } = await supabase
+     .from("social_posts")
+     .select("*")
+@@ -13,24 +16,25 @@ export default async function SocialGallery() {
+     <section className="px-6 py-16">
+       <div className="mx-auto max-w-7xl">
+         <p className="text-sm font-bold uppercase tracking-[0.25em] text-orange-600">
+-          Nos créations
++          {t.social.eyebrow}
+         </p>
+         <h2 className="mt-2 text-3xl font-black">
+-          Ce que nos clients réalisent
++          {t.social.title}
+         </h2>
+ 
+         <div className="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-4">
+           {posts.map((post) => {
++            const caption = tr(post, "caption", locale);
+             const content = (
+               <div className="group relative aspect-square overflow-hidden rounded-2xl bg-neutral-100">
+                 <img
+                   src={post.image_url}
+-                  alt={post.caption || "Création Hurrah Mercerie"}
++                  alt={caption || t.common.creationAlt}
+                   className="h-full w-full object-cover transition duration-300 group-hover:scale-105"
+                 />
+-                {post.caption && (
++                {caption && (
+                   <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-3 text-xs font-semibold text-white opacity-0 transition group-hover:opacity-100">
+-                    {post.caption}
++                    {caption}
+                   </div>
+                 )}
+               </div>
+diff --git a/components/StockBadge.tsx b/components/StockBadge.tsx
+index 14af11a..61ac8de 100644
+--- a/components/StockBadge.tsx
++++ b/components/StockBadge.tsx
+@@ -1,14 +1,20 @@
++"use client";
++
++import { useI18n } from "@/lib/i18n/client";
++
+ type Props = {
+   stock: number;
+   lowStockThreshold?: number;
+ };
+ 
+ export default function StockBadge({ stock, lowStockThreshold = 5 }: Props) {
++  const { t } = useI18n();
++
+   if (stock <= 0) {
+     return (
+       <span className="inline-flex items-center gap-1.5 rounded-full bg-red-50 px-3 py-1 text-xs font-bold text-red-600">
+         <span className="h-1.5 w-1.5 rounded-full bg-red-500" />
+-        Rupture de stock
++        {t.stock.out}
+       </span>
+     );
+   }
+@@ -17,7 +23,7 @@ export default function StockBadge({ stock, lowStockThreshold = 5 }: Props) {
+     return (
+       <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1 text-xs font-bold text-amber-600">
+         <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+-        Plus que {stock} en stock
++        {t.stock.low(stock)}
+       </span>
+     );
+   }
+@@ -25,7 +31,7 @@ export default function StockBadge({ stock, lowStockThreshold = 5 }: Props) {
+   return (
+     <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-600">
+       <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+-      Disponible
++      {t.stock.available}
+     </span>
+   );
+ }
+diff --git a/components/WishlistButton.tsx b/components/WishlistButton.tsx
+index a61f02e..7bdc196 100644
+--- a/components/WishlistButton.tsx
++++ b/components/WishlistButton.tsx
+@@ -1,8 +1,10 @@
+ "use client";
+ 
+ import { useWishlist } from "@/lib/useWishlist";
++import { useI18n } from "@/lib/i18n/client";
+ 
+ export default function WishlistButton({ productId }: { productId: string }) {
++  const { t } = useI18n();
+   const { isFavorite, toggle } = useWishlist(productId);
+ 
+   return (
+@@ -13,7 +15,8 @@ export default function WishlistButton({ productId }: { productId: string }) {
+         e.stopPropagation();
+         toggle(productId);
+       }}
+-      aria-label="Ajouter aux favoris"
++      aria-label={isFavorite ? t.product.removeFromWishlist : t.product.addToWishlist}
++      aria-pressed={isFavorite}
+       className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full transition ${
+         isFavorite
+           ? "bg-orange-600 text-white"
+diff --git a/lib/format.ts b/lib/format.ts
+index 79aa41e..a965c2b 100644
+--- a/lib/format.ts
++++ b/lib/format.ts
+@@ -1,3 +1,5 @@
+-export function formatPrice(value: number) {
+-  return new Intl.NumberFormat("fr-FR").format(value) + " FCFA";
++import { intlLocale, type Locale } from "@/lib/i18n/config";
++
++export function formatPrice(value: number, locale: Locale = "fr") {
++  return new Intl.NumberFormat(intlLocale(locale)).format(value) + " FCFA";
+ }
+diff --git a/lib/i18n/client.tsx b/lib/i18n/client.tsx
+new file mode 100644
+index 0000000..3d046fa
+--- /dev/null
++++ b/lib/i18n/client.tsx
+@@ -0,0 +1,25 @@
++"use client";
++
++import { createContext, useContext } from "react";
++import { dictionaries } from "./dictionaries";
++import { DEFAULT_LOCALE, type Locale } from "./config";
++
++const LocaleContext = createContext<Locale>(DEFAULT_LOCALE);
++
++export function LocaleProvider({
++  locale,
++  children,
++}: {
++  locale: Locale;
++  children: React.ReactNode;
++}) {
++  return (
++    <LocaleContext.Provider value={locale}>{children}</LocaleContext.Provider>
++  );
++}
++
++/** À utiliser dans les composants client : const { t, locale } = useI18n(); */
++export function useI18n() {
++  const locale = useContext(LocaleContext);
++  return { locale, t: dictionaries[locale] };
++}
+diff --git a/lib/i18n/config.ts b/lib/i18n/config.ts
+new file mode 100644
+index 0000000..2883fe0
+--- /dev/null
++++ b/lib/i18n/config.ts
+@@ -0,0 +1,24 @@
++export const LOCALES = ["fr", "en", "fon"] as const;
++export type Locale = (typeof LOCALES)[number];
++
++export const DEFAULT_LOCALE: Locale = "fr";
++export const LOCALE_COOKIE = "hurrah-locale";
++
++export function normalizeLocale(value?: string | null): Locale {
++  return (LOCALES as readonly string[]).includes(value || "")
++    ? (value as Locale)
++    : DEFAULT_LOCALE;
++}
++
++/**
++ * Locale à utiliser pour les dates et les nombres (Intl).
++ * Les navigateurs ne connaissent pas le fon : on garde le format français
++ * (12 000 FCFA, 24/09/2026), qui est celui utilisé au Bénin.
++ */
++export function intlLocale(locale: Locale) {
++  return locale === "en" ? "en-GB" : "fr-FR";
++}
++
++export function formatDate(value: string | Date, locale: Locale) {
++  return new Date(value).toLocaleDateString(intlLocale(locale));
++}
+diff --git a/lib/i18n/dictionaries.ts b/lib/i18n/dictionaries.ts
+new file mode 100644
+index 0000000..65c7a23
+--- /dev/null
++++ b/lib/i18n/dictionaries.ts
+@@ -0,0 +1,715 @@
++// Tous les textes de l'interface publique, en français et en anglais.
++// Pour ajouter un texte : ajoute la clé dans `fr`, puis dans `en`.
++// TypeScript signale une erreur si une clé manque dans l'une des deux langues.
++
++import type { Locale } from "./config";
++import { fonOverrides } from "./fon";
++
++const fr = {
++  meta: {
++    title: "Hurrah Mercerie | Machines à coudre, tissus et accessoires",
++    description:
++      "Découvrez Hurrah Mercerie : machines à coudre, tissus, fils et accessoires pour tous vos projets de couture.",
++    ogDescription:
++      "Machines à coudre, tissus, fils et accessoires pour donner vie à vos créations.",
++    ogLocale: "fr_FR",
++  },
++
++  language: {
++    label: "Langue",
++    names: { fr: "Français", en: "English", fon: "Fɔngbè" } as Record<Locale, string>,
++  },
++
++  common: {
++    home: "Accueil",
++    colon: " :",
++    discover: "Découvrir",
++    discoverArrow: "Découvrir →",
++    viewCatalogue: "Voir le catalogue",
++    viewCatalogueArrow: "Voir le catalogue →",
++    backToCatalogue: "← Retour au catalogue",
++    loading: "Chargement…",
++    total: "Total",
++    subtotal: "Sous-total",
++    reference: (ref: string) => `Réf. ${ref}`,
++    defaultProductDescription: "Produit Hurrah Mercerie.",
++    creationAlt: "Création Hurrah Mercerie",
++  },
++
++  header: {
++    tagline: "Votre univers couture, mercerie et machines à coudre",
++    brandSub: "Mercerie",
++    nav: {
++      home: "Accueil",
++      catalogue: "Catalogue",
++      kits: "Kits",
++      machines: "Machines",
++      blog: "Conseils",
++      about: "À propos",
++      contact: "Contact",
++    },
++    favorites: "Favoris",
++    tracking: "Suivi commande",
++    cart: "Panier",
++    discover: "Découvrir",
++  },
++
++  footer: {
++    about:
++      "Machines à coudre, tissus, fils et accessoires pour donner vie à vos créations.",
++    navigation: "Navigation",
++    links: {
++      home: "Accueil",
++      catalogue: "Catalogue",
++      kits: "Kits couture",
++      blog: "Conseils couture",
++      machines: "Machines",
++      about: "À propos",
++      contact: "Contact",
++      tracking: "Suivre ma commande",
++    },
++    contact: "Contact",
++    whatsappMessage: "Bonjour Hurrah Mercerie, j'ai une question.",
++    whatsappButton: "Écrire sur WhatsApp",
++    rights: "Tous droits réservés.",
++  },
++
++  home: {
++    badge: "L'univers de la couture",
++    heroTitle1: "Tout pour",
++    heroTitle2: "créer, coudre",
++    heroTitle3: "et imaginer.",
++    heroText:
++      "Découvrez Hurrah Mercerie, votre espace dédié aux machines à coudre, tissus, fils et accessoires indispensables à vos créations.",
++    seeMachines: "Voir nos machines",
++    exploreShop: "Explorer la mercerie",
++    stats: [
++      { value: "02", label: "types de machines" },
++      { value: "∞", label: "possibilités créatives" },
++      { value: "100%", label: "passion couture" },
++    ],
++    heroImageAlt: "Machine à coudre chez Hurrah Mercerie",
++    heroCard: "Donnez vie à vos idées.",
++    universesEyebrow: "Nos univers",
++    universesTitle: "Tout commence ici.",
++    categories: [
++      { name: "Fils & Laines", description: "Fils et laines pour vos différents projets." },
++      { name: "Duchesse", description: "Découvrez notre sélection de tissus duchesse." },
++      { name: "Boutons", description: "Différents boutons et accessoires." },
++    ],
++    machinesEyebrow: "Machines à coudre",
++    machinesTitle: "Choisissez la machine adaptée à votre travail.",
++    seeMachine: "Voir la machine",
++    features: [
++      {
++        title: "Un choix pensé pour la couture",
++        text: "Des produits sélectionnés pour accompagner débutants et professionnels.",
++      },
++      {
++        title: "Tout au même endroit",
++        text: "Machines, tissus, fils et accessoires réunis dans un seul univers.",
++      },
++      {
++        title: "Une expérience simple",
++        text: "Parcourez nos produits et trouvez facilement ce dont vous avez besoin.",
++      },
++    ],
++    aboutEyebrow: "À propos de Hurrah",
++    aboutTitle: "Une mercerie pensée pour les créateurs.",
++    aboutText1:
++      "Hurrah Mercerie accompagne les passionnés de couture dans leurs projets en proposant des machines à coudre, des tissus, des fils et différents accessoires.",
++    aboutText2:
++      "Notre objectif est simple : rendre l'univers de la couture plus accessible et permettre à chacun de trouver facilement les produits nécessaires à ses créations.",
++    contactUs: "Nous contacter",
++    pillars: ["Machines", "Tissus & fils", "Accessoires", "Créativité"],
++    ctaTitle: "Prêt à donner vie à votre prochaine création ?",
++    ctaText:
++      "Explorez notre univers et découvrez les produits qui vous accompagneront dans vos projets.",
++    ctaButton: "Découvrir nos produits",
++    featuredEyebrow: "Sélection Hurrah",
++    featuredTitle: "Produits mis en avant",
++  },
++
++  machines: {
++    title: "Machines à coudre",
++    intro: "Deux grandes catégories de machines proposées par Hurrah Mercerie.",
++    seeMachine: "Voir la machine",
++    detailText:
++      "Une machine proposée par Hurrah Mercerie pour accompagner vos travaux de couture.",
++    askInfo: "Demander des informations",
++    items: {
++      singer: {
++        shortName: "Machine Singer",
++        name: "Machine à coudre Singer",
++        type: "Familiale",
++        description: "Une machine pratique pour les travaux de couture du quotidien.",
++      },
++      butterfly: {
++        shortName: "Machine Butterfly",
++        name: "Machine à coudre Butterfly",
++        type: "Industrielle",
++        description: "Une machine robuste adaptée aux travaux de couture intensifs.",
++      },
++    },
++  },
++
++  catalogue: {
++    title: "Notre catalogue",
++    intro: "Découvrez nos machines, fils, tissus, boutons et accessoires.",
++    searchPlaceholder: "Rechercher un produit, une couleur, une référence…",
++    clear: "Effacer",
++    search: "Rechercher",
++    availability: {
++      toutes: "Toute disponibilité",
++      disponible: "Disponible",
++      rupture: "Rupture",
++    },
++    exploreByCategory: "Explorer par catégorie",
++    allProducts: "Tous les produits",
++    ourCategories: "Nos catégories",
++    allOurProducts: "Tous nos produits",
++    resultsFor: (q: string) => `Résultats pour "${q}"`,
++    discoverProducts: "Découvrez nos produits",
++    categoryProducts: (c: string) => `Produits ${c}`,
++    resultCount: (n: number) => `${n} ${n > 1 ? "résultats" : "résultat"}`,
++    noMatch: (q: string) => `Aucun produit ne correspond à "${q}".`,
++    emptyCategory: "Aucun produit publié dans cette catégorie pour le moment.",
++    seeAllProducts: "Voir tous les produits",
++    categoryEyebrow: "Catégorie",
++  },
++
++  product: {
++    back: "← Catalogue",
++    color: "Couleur",
++    size: "Taille",
++    format: "Format",
++    stock: (n: number) => `Stock : ${n}`,
++    similar: "Produits similaires",
++    quickView: "Vue rapide",
++    close: "Fermer",
++    fullPage: "Voir la fiche complète →",
++    addToWishlist: "Ajouter aux favoris",
++    removeFromWishlist: "Retirer des favoris",
++  },
++
++  stock: {
++    out: "Rupture de stock",
++    low: (n: number) => `Plus que ${n} en stock`,
++    available: "Disponible",
++  },
++
++  addToCart: {
++    add: "Ajouter au panier",
++    added: "Ajouté au panier ✓",
++    out: "Rupture de stock",
++  },
++
++  reviews: {
++    title: "Avis clients",
++    count: (n: number) => `${n} avis`,
++    none: "Aucun avis pour ce produit pour le moment.",
++    leave: "Laisser un avis",
++    thanksPublished: "Merci, votre avis a été publié !",
++    thanksToast: "Merci pour votre avis !",
++    namePlaceholder: "Votre nom",
++    commentPlaceholder: "Votre commentaire (optionnel)",
++    sending: "Envoi…",
++    publish: "Publier mon avis",
++    starLabel: (n: number) => `${n} étoile${n > 1 ? "s" : ""}`,
++  },
++
++  cart: {
++    title: "Votre panier",
++    empty: "Votre panier est vide.",
++    remove: "Supprimer",
++    promoPlaceholder: "Code promo",
++    checking: "Vérification…",
++    apply: "Appliquer",
++    withdraw: "Retirer",
++    promoLine: (code: string, pct: number) => `Code "${code}" : -${pct}%`,
++    promoInvalid: "Code promo invalide ou expiré.",
++    promoApplied: (code: string, pct: number) =>
++      `Code "${code}" appliqué : -${pct}%`,
++    discount: (pct: number) => `Réduction (${pct}%)`,
++    checkout: "Passer la commande",
++    decrease: "Diminuer la quantité",
++    increase: "Augmenter la quantité",
++  },
++
++  checkout: {
++    back: "← Panier",
++    title: "Finaliser la commande",
++    subtotal: (v: string) => `Sous-total : ${v}`,
++    promo: (code: string, v: string) => `Code ${code} : -${v}`,
++    total: (v: string) => `Total : ${v}`,
++    paymentAccepted: "Paiement accepté :",
++    cashOnDelivery: "Espèces à la livraison",
++    name: "Nom complet",
++    phone: "Téléphone",
++    address: "Adresse",
++    notes: "Notes",
++    confirm: "Confirmer la commande",
++    whatsappDirect: "Commander directement par WhatsApp",
++    sending: "Envoi...",
++    emptyCart: "Votre panier est vide.",
++    saveError: "Erreur lors de l'enregistrement.",
++    success: "Commande enregistrée avec succès.",
++    successTitle: "Commande enregistrée avec succès !",
++    successText: (phone: string) =>
++      `Hurrah Mercerie va vous contacter au ${phone} pour confirmer votre commande.`,
++    whatsappConfirm: "Confirmer aussi par WhatsApp",
++    wa: {
++      intro: "Bonjour Hurrah Mercerie, je souhaite passer une commande :",
++      subtotal: "Sous-total :",
++      code: "Code",
++      total: "Total :",
++      name: "Nom :",
++      phone: "Téléphone :",
++      address: "Adresse :",
++      notes: "Notes :",
++    },
++  },
++
++  favorites: {
++    title: "Mes favoris",
++    empty: "Vous n'avez pas encore de favoris.",
++  },
++
++  tracking: {
++    title: "Suivre ma commande",
++    intro: "Entrez le numéro de téléphone utilisé lors de votre commande.",
++    placeholder: "Votre numéro de téléphone",
++    searching: "Recherche…",
++    search: "Chercher",
++    none: "Aucune commande trouvée pour ce numéro.",
++    status: {
++      new: "Nouvelle",
++      confirmed: "Confirmée",
++      preparing: "En préparation",
++      delivered: "Livrée",
++      cancelled: "Annulée",
++    } as Record<string, string>,
++  },
++
++  kits: {
++    metaTitle: "Kits couture",
++    metaDescription: "Nos kits prêts à l'emploi à prix groupé.",
++    title: "Kits couture",
++    intro:
++      "Des sélections prêtes à l'emploi, à prix groupé, pour bien démarrer votre projet.",
++    empty: "Aucun kit disponible pour le moment.",
++  },
++
++  blog: {
++    metaTitle: "Conseils couture",
++    metaDescription: "Astuces, guides et actualités couture par Hurrah Mercerie.",
++    title: "Conseils couture",
++    intro:
++      "Astuces, guides pratiques et actualités pour bien choisir votre matériel de couture.",
++    empty: "Aucun article publié pour le moment.",
++    read: "Lire →",
++    back: "← Conseils couture",
++    articleFallback: "Article",
++  },
++
++  contact: {
++    title: "Contact",
++    intro:
++      "Pour toute demande concernant les produits, les machines ou une commande, contactez Hurrah Mercerie. Nous répondons rapidement par WhatsApp.",
++    phoneLabel: "Téléphone / WhatsApp",
++    addressLabel: "Adresse",
++    name: "Votre nom",
++    phone: "Votre téléphone",
++    message: "Votre message",
++    fillAll: "Merci de remplir tous les champs.",
++    send: "Envoyer sur WhatsApp",
++    wa: {
++      greeting: "Bonjour Hurrah Mercerie,",
++      name: "Nom :",
++      phone: "Téléphone :",
++    },
++  },
++
++  about: {
++    title: "À propos de nous",
++    text1:
++      "Hurrah Mercerie accompagne les passionnés de couture avec des machines à coudre, tissus, fils et accessoires.",
++    text2:
++      "Notre objectif est de rendre l'univers de la couture plus accessible et de proposer une expérience simple pour découvrir et commander les produits.",
++  },
++
++  social: {
++    eyebrow: "Nos créations",
++    title: "Ce que nos clients réalisent",
++  },
++};
++
++export type Dictionary = typeof fr;
++
++const en: Dictionary = {
++  meta: {
++    title: "Hurrah Mercerie | Sewing machines, fabrics and notions",
++    description:
++      "Discover Hurrah Mercerie: sewing machines, fabrics, threads and notions for all your sewing projects.",
++    ogDescription:
++      "Sewing machines, fabrics, threads and notions to bring your creations to life.",
++    ogLocale: "en_GB",
++  },
++
++  language: {
++    label: "Language",
++    names: { fr: "Français", en: "English", fon: "Fɔngbè" },
++  },
++
++  common: {
++    home: "Home",
++    colon: ":",
++    discover: "Discover",
++    discoverArrow: "Discover →",
++    viewCatalogue: "Browse the shop",
++    viewCatalogueArrow: "Browse the shop →",
++    backToCatalogue: "← Back to the shop",
++    loading: "Loading…",
++    total: "Total",
++    subtotal: "Subtotal",
++    reference: (ref: string) => `Ref. ${ref}`,
++    defaultProductDescription: "A Hurrah Mercerie product.",
++    creationAlt: "Hurrah Mercerie creation",
++  },
++
++  header: {
++    tagline: "Your world of sewing, haberdashery and sewing machines",
++    brandSub: "Haberdashery",
++    nav: {
++      home: "Home",
++      catalogue: "Shop",
++      kits: "Kits",
++      machines: "Machines",
++      blog: "Tips",
++      about: "About",
++      contact: "Contact",
++    },
++    favorites: "Wishlist",
++    tracking: "Track order",
++    cart: "Cart",
++    discover: "Discover",
++  },
++
++  footer: {
++    about:
++      "Sewing machines, fabrics, threads and notions to bring your creations to life.",
++    navigation: "Navigation",
++    links: {
++      home: "Home",
++      catalogue: "Shop",
++      kits: "Sewing kits",
++      blog: "Sewing tips",
++      machines: "Machines",
++      about: "About",
++      contact: "Contact",
++      tracking: "Track my order",
++    },
++    contact: "Contact",
++    whatsappMessage: "Hello Hurrah Mercerie, I have a question.",
++    whatsappButton: "Message us on WhatsApp",
++    rights: "All rights reserved.",
++  },
++
++  home: {
++    badge: "The world of sewing",
++    heroTitle1: "Everything to",
++    heroTitle2: "create, sew",
++    heroTitle3: "and imagine.",
++    heroText:
++      "Discover Hurrah Mercerie, your place for sewing machines, fabrics, threads and all the essential notions for your creations.",
++    seeMachines: "See our machines",
++    exploreShop: "Explore the shop",
++    stats: [
++      { value: "02", label: "types of machines" },
++      { value: "∞", label: "creative possibilities" },
++      { value: "100%", label: "passion for sewing" },
++    ],
++    heroImageAlt: "Sewing machine at Hurrah Mercerie",
++    heroCard: "Bring your ideas to life.",
++    universesEyebrow: "Our collections",
++    universesTitle: "It all starts here.",
++    categories: [
++      { name: "Threads & Yarns", description: "Threads and yarns for all your projects." },
++      { name: "Duchess Satin", description: "Discover our selection of duchess satin fabrics." },
++      { name: "Buttons", description: "A wide range of buttons and accessories." },
++    ],
++    machinesEyebrow: "Sewing machines",
++    machinesTitle: "Choose the right machine for your work.",
++    seeMachine: "See the machine",
++    features: [
++      {
++        title: "A range designed for sewing",
++        text: "Carefully selected products for beginners and professionals alike.",
++      },
++      {
++        title: "Everything in one place",
++        text: "Machines, fabrics, threads and notions, all in one shop.",
++      },
++      {
++        title: "A simple experience",
++        text: "Browse our products and easily find what you need.",
++      },
++    ],
++    aboutEyebrow: "About Hurrah",
++    aboutTitle: "A haberdashery made for makers.",
++    aboutText1:
++      "Hurrah Mercerie supports sewing enthusiasts in their projects with sewing machines, fabrics, threads and a range of notions.",
++    aboutText2:
++      "Our goal is simple: make sewing more accessible and help everyone easily find the products they need for their creations.",
++    contactUs: "Contact us",
++    pillars: ["Machines", "Fabrics & threads", "Notions", "Creativity"],
++    ctaTitle: "Ready to bring your next creation to life?",
++    ctaText:
++      "Explore our shop and discover the products that will support you in your projects.",
++    ctaButton: "Discover our products",
++    featuredEyebrow: "Hurrah picks",
++    featuredTitle: "Featured products",
++  },
++
++  machines: {
++    title: "Sewing machines",
++    intro: "Two main types of machines offered by Hurrah Mercerie.",
++    seeMachine: "See the machine",
++    detailText:
++      "A machine offered by Hurrah Mercerie to support all your sewing work.",
++    askInfo: "Ask for information",
++    items: {
++      singer: {
++        shortName: "Singer machine",
++        name: "Singer sewing machine",
++        type: "Home",
++        description: "A practical machine for everyday sewing.",
++      },
++      butterfly: {
++        shortName: "Butterfly machine",
++        name: "Butterfly sewing machine",
++        type: "Industrial",
++        description: "A sturdy machine built for heavy-duty sewing.",
++      },
++    },
++  },
++
++  catalogue: {
++    title: "Our shop",
++    intro: "Discover our machines, threads, fabrics, buttons and notions.",
++    searchPlaceholder: "Search for a product, colour or reference…",
++    clear: "Clear",
++    search: "Search",
++    availability: {
++      toutes: "Any availability",
++      disponible: "In stock",
++      rupture: "Out of stock",
++    },
++    exploreByCategory: "Browse by category",
++    allProducts: "All products",
++    ourCategories: "Our categories",
++    allOurProducts: "All our products",
++    resultsFor: (q: string) => `Results for "${q}"`,
++    discoverProducts: "Discover our products",
++    categoryProducts: (c: string) => `${c}`,
++    resultCount: (n: number) => `${n} ${n === 1 ? "result" : "results"}`,
++    noMatch: (q: string) => `No products match "${q}".`,
++    emptyCategory: "No products in this category yet.",
++    seeAllProducts: "See all products",
++    categoryEyebrow: "Category",
++  },
++
++  product: {
++    back: "← Shop",
++    color: "Colour",
++    size: "Size",
++    format: "Format",
++    stock: (n: number) => `Stock: ${n}`,
++    similar: "Similar products",
++    quickView: "Quick view",
++    close: "Close",
++    fullPage: "View full details →",
++    addToWishlist: "Add to wishlist",
++    removeFromWishlist: "Remove from wishlist",
++  },
++
++  stock: {
++    out: "Out of stock",
++    low: (n: number) => `Only ${n} left`,
++    available: "In stock",
++  },
++
++  addToCart: {
++    add: "Add to cart",
++    added: "Added to cart ✓",
++    out: "Out of stock",
++  },
++
++  reviews: {
++    title: "Customer reviews",
++    count: (n: number) => `${n} ${n === 1 ? "review" : "reviews"}`,
++    none: "No reviews for this product yet.",
++    leave: "Leave a review",
++    thanksPublished: "Thank you, your review has been published!",
++    thanksToast: "Thank you for your review!",
++    namePlaceholder: "Your name",
++    commentPlaceholder: "Your comment (optional)",
++    sending: "Sending…",
++    publish: "Post my review",
++    starLabel: (n: number) => `${n} star${n > 1 ? "s" : ""}`,
++  },
++
++  cart: {
++    title: "Your cart",
++    empty: "Your cart is empty.",
++    remove: "Remove",
++    promoPlaceholder: "Promo code",
++    checking: "Checking…",
++    apply: "Apply",
++    withdraw: "Remove",
++    promoLine: (code: string, pct: number) => `Code "${code}": -${pct}%`,
++    promoInvalid: "Invalid or expired promo code.",
++    promoApplied: (code: string, pct: number) =>
++      `Code "${code}" applied: -${pct}%`,
++    discount: (pct: number) => `Discount (${pct}%)`,
++    checkout: "Proceed to checkout",
++    decrease: "Decrease quantity",
++    increase: "Increase quantity",
++  },
++
++  checkout: {
++    back: "← Cart",
++    title: "Complete your order",
++    subtotal: (v: string) => `Subtotal: ${v}`,
++    promo: (code: string, v: string) => `Code ${code}: -${v}`,
++    total: (v: string) => `Total: ${v}`,
++    paymentAccepted: "Payment accepted:",
++    cashOnDelivery: "Cash on delivery",
++    name: "Full name",
++    phone: "Phone",
++    address: "Address",
++    notes: "Notes",
++    confirm: "Confirm order",
++    whatsappDirect: "Order directly via WhatsApp",
++    sending: "Sending...",
++    emptyCart: "Your cart is empty.",
++    saveError: "Something went wrong while saving your order.",
++    success: "Order placed successfully.",
++    successTitle: "Order placed successfully!",
++    successText: (phone: string) =>
++      `Hurrah Mercerie will contact you on ${phone} to confirm your order.`,
++    whatsappConfirm: "Also confirm via WhatsApp",
++    wa: {
++      intro: "Hello Hurrah Mercerie, I would like to place an order:",
++      subtotal: "Subtotal:",
++      code: "Code",
++      total: "Total:",
++      name: "Name:",
++      phone: "Phone:",
++      address: "Address:",
++      notes: "Notes:",
++    },
++  },
++
++  favorites: {
++    title: "My wishlist",
++    empty: "Your wishlist is empty.",
++  },
++
++  tracking: {
++    title: "Track my order",
++    intro: "Enter the phone number you used when placing your order.",
++    placeholder: "Your phone number",
++    searching: "Searching…",
++    search: "Search",
++    none: "No orders found for this number.",
++    status: {
++      new: "New",
++      confirmed: "Confirmed",
++      preparing: "Being prepared",
++      delivered: "Delivered",
++      cancelled: "Cancelled",
++    },
++  },
++
++  kits: {
++    metaTitle: "Sewing kits",
++    metaDescription: "Our ready-to-use kits at a bundle price.",
++    title: "Sewing kits",
++    intro:
++      "Ready-to-use selections at a bundle price to get your project off to a great start.",
++    empty: "No kits available at the moment.",
++  },
++
++  blog: {
++    metaTitle: "Sewing tips",
++    metaDescription: "Sewing tips, guides and news from Hurrah Mercerie.",
++    title: "Sewing tips",
++    intro:
++      "Tips, practical guides and news to help you choose the right sewing supplies.",
++    empty: "No articles published yet.",
++    read: "Read →",
++    back: "← Sewing tips",
++    articleFallback: "Article",
++  },
++
++  contact: {
++    title: "Contact",
++    intro:
++      "For any question about our products, machines or an order, get in touch with Hurrah Mercerie. We reply quickly on WhatsApp.",
++    phoneLabel: "Phone / WhatsApp",
++    addressLabel: "Address",
++    name: "Your name",
++    phone: "Your phone number",
++    message: "Your message",
++    fillAll: "Please fill in all fields.",
++    send: "Send via WhatsApp",
++    wa: {
++      greeting: "Hello Hurrah Mercerie,",
++      name: "Name:",
++      phone: "Phone:",
++    },
++  },
++
++  about: {
++    title: "About us",
++    text1:
++      "Hurrah Mercerie supports sewing enthusiasts with sewing machines, fabrics, threads and notions.",
++    text2:
++      "Our goal is to make sewing more accessible and to offer a simple way to discover and order products.",
++  },
++
++  social: {
++    eyebrow: "Our creations",
++    title: "What our customers make",
++  },
++};
++
++/**
++ * Fusionne les traductions fon avec le français : tout texte pas encore
++ * traduit en fon s'affiche en français au lieu de laisser un trou.
++ */
++function withFallback<T>(base: T, overrides: unknown): T {
++  if (
++    overrides === undefined ||
++    overrides === null ||
++    typeof base !== "object" ||
++    base === null ||
++    Array.isArray(base) ||
++    typeof overrides !== "object" ||
++    Array.isArray(overrides)
++  ) {
++    return (overrides ?? base) as T;
++  }
++  const result: Record<string, unknown> = { ...(base as Record<string, unknown>) };
++  for (const [key, value] of Object.entries(overrides as Record<string, unknown>)) {
++    if (value !== undefined && value !== "") {
++      result[key] = withFallback((base as Record<string, unknown>)[key], value);
++    }
++  }
++  return result as T;
++}
++
++const fon: Dictionary = withFallback(fr, fonOverrides);
++
++export const dictionaries: Record<Locale, Dictionary> = { fr, en, fon };
+diff --git a/lib/i18n/fon.ts b/lib/i18n/fon.ts
+new file mode 100644
+index 0000000..778c4d1
+--- /dev/null
++++ b/lib/i18n/fon.ts
+@@ -0,0 +1,353 @@
++// ─────────────────────────────────────────────────────────────────────────
++//  Traductions en fon (Fɔngbè)
++// ─────────────────────────────────────────────────────────────────────────
++//  ⚠️ PREMIÈRE VERSION À FAIRE RELIRE par une personne qui parle et écrit
++//  le fon couramment (voir hurrah-textes-a-traduire-en-fon.xlsx).
++//  Ce fichier ne contient QUE les textes traduits en fon.
++//  Tout ce qui n'est pas ici s'affiche automatiquement en français.
++//
++//  Pour ajouter une traduction, recopie la clé depuis `dictionaries.ts`
++//  (même chemin, même nom) et remplace le texte. Exemple :
++//
++//    header: {
++//      nav: {
++//        home: "…",        // texte en fon
++//      },
++//    },
++//
++//  Les traductions doivent être relues par une personne qui parle et écrit
++//  le fon couramment (orthographe officielle : ɔ, ɛ, ɖ, tons…).
++// ─────────────────────────────────────────────────────────────────────────
++
++import type { Dictionary } from "./dictionaries";
++
++// Toutes les clés sont facultatives ; les listes (tableaux) et les textes
++// avec variables (fonctions) se remplacent en entier.
++type DeepPartial<T> = {
++  [K in keyof T]?: T[K] extends (...args: never[]) => unknown
++    ? T[K]
++    : T[K] extends readonly unknown[]
++    ? T[K]
++    : T[K] extends object
++    ? DeepPartial<T[K]>
++    : T[K];
++};
++
++export const fonOverrides: DeepPartial<Dictionary> = {
++  meta: {
++    title: "Hurrah Mercerie | Avɔtɔ́ mashin, avɔ̀ kpo nǔ avɔtɔtɔ́ tɔn lɛ kpo",
++    description:
++      "Hurrah Mercerie : avɔtɔ́ mashin, avɔ̀, kàn kpo nǔ ɖevo lɛ kpo nú azɔ̌ avɔtɔtɔ́ tɔn towe lɛ bǐ.",
++    ogDescription:
++      "Avɔtɔ́ mashin, avɔ̀, kàn kpo nǔ ɖevo lɛ kpo bo na bló nǔ e a lin é.",
++  },
++
++  language: { label: "Gbè" },
++
++  common: {
++    home: "Xwé",
++    discover: "Kpɔ́n",
++    discoverArrow: "Kpɔ́n →",
++    viewCatalogue: "Kpɔ́n nǔ lɛ bǐ",
++    viewCatalogueArrow: "Kpɔ́n nǔ lɛ bǐ →",
++    backToCatalogue: "← Lɛ́kɔ yì nǔ lɛ",
++    loading: "Nɔte kpɛɖé…",
++    total: "Akwɛ́ bǐ",
++    subtotal: "Akwɛ́ nǔ lɛ tɔn",
++    defaultProductDescription: "Nǔ Hurrah Mercerie tɔn.",
++    creationAlt: "Nǔ e è bló ɖò Hurrah Mercerie",
++  },
++
++  header: {
++    tagline: "Fí e a na mɔ nǔ avɔtɔtɔ́ tɔn lɛ bǐ kpo avɔtɔ́ mashin lɛ kpo ɖè",
++    nav: {
++      home: "Xwé",
++      catalogue: "Nǔ lɛ",
++      kits: "Kits",
++      machines: "Mashin lɛ",
++      blog: "Nǔnywɛ́",
++      about: "Mǐ",
++      contact: "Ylɔ́ mǐ",
++    },
++    favorites: "Nǔ e un yí wǎn nú",
++    tracking: "Kpɔ́n nǔ e un byɔ́",
++    cart: "Panier",
++    discover: "Kpɔ́n",
++  },
++
++  footer: {
++    about: "Avɔtɔ́ mashin, avɔ̀, kàn kpo nǔ ɖevo lɛ kpo bo na bló nǔ e a lin é.",
++    navigation: "Ali lɛ",
++    links: {
++      home: "Xwé",
++      catalogue: "Nǔ lɛ",
++      kits: "Kits avɔtɔtɔ́ tɔn",
++      blog: "Nǔnywɛ́ avɔtɔtɔ́ tɔn",
++      machines: "Mashin lɛ",
++      about: "Xó dó mǐ wu",
++      contact: "Ylɔ́ mǐ",
++      tracking: "Kpɔ́n nǔ e un byɔ́ é",
++    },
++    contact: "Ylɔ́ mǐ",
++    whatsappMessage: "Kúdo Hurrah Mercerie, un ɖó kanbyɔ ɖé.",
++    whatsappButton: "Wlan wɛn mǐ ɖò WhatsApp jí",
++    rights: "Acɛ lɛ bǐ nyí mǐtɔn.",
++  },
++
++  home: {
++    badge: "Xwé avɔtɔtɔ́ tɔn",
++    heroTitle1: "Nǔ bǐ dó",
++    heroTitle2: "bló, tɔ́ avɔ̀",
++    heroTitle3: "bo lin nǔ.",
++    heroText:
++      "Wá Hurrah Mercerie : fí e a na mɔ avɔtɔ́ mashin, avɔ̀, kàn kpo nǔ ɖevo e a na zán dó bló nǔ towe lɛ é bǐ ɖè.",
++    seeMachines: "Kpɔ́n mashin mǐtɔn lɛ",
++    exploreShop: "Kpɔ́n nǔ mǐtɔn lɛ",
++    stats: [
++      { value: "02", label: "mashin wè" },
++      { value: "∞", label: "nǔ e a sixu bló lɛ" },
++      { value: "100%", label: "yiwanna avɔtɔtɔ́" },
++    ],
++    heroImageAlt: "Avɔtɔ́ mashin ɖò Hurrah Mercerie",
++    heroCard: "Bló nǔ e a lin é.",
++    universesEyebrow: "Nǔ mǐtɔn lɛ",
++    universesTitle: "Fí ɔ wɛ nǔ bǐ bɛ́ ɖè.",
++    categories: [
++      { name: "Kàn lɛ", description: "Kàn lɛ nú azɔ̌ towe lɛ bǐ." },
++      { name: "Duchesse", description: "Kpɔ́n avɔ̀ duchesse mǐtɔn lɛ." },
++      { name: "Bouton lɛ", description: "Bouton vovo lɛ kpo nǔ ɖevo lɛ kpo." },
++    ],
++    machinesEyebrow: "Avɔtɔ́ mashin lɛ",
++    machinesTitle: "Sɔ́ mashin e jɛ azɔ̌ towe wu é.",
++    seeMachine: "Kpɔ́n mashin ɔ",
++    features: [
++      {
++        title: "Nǔ e è sɔ́ dó avɔtɔtɔ́ wu",
++        text: "Nǔ e mǐ sɔ́ nú mɛ e ɖò kplɔ́n wɛ lɛ kpo mɛ e ko tuùn azɔ̌ ɔ lɛ kpo.",
++      },
++      {
++        title: "Nǔ bǐ ɖò fí ɖokpó",
++        text: "Mashin, avɔ̀, kàn kpo nǔ ɖevo lɛ kpo ɖò fí ɖokpó.",
++      },
++      {
++        title: "Ali ɖé e yá",
++        text: "Kpɔ́n nǔ mǐtɔn lɛ bo mɔ nǔ e a jló é bɔ̀bɔ̀.",
++      },
++    ],
++    aboutEyebrow: "Xó dó Hurrah wu",
++    aboutTitle: "Mercerie ɖé nú mɛ e nɔ bló nǔ lɛ.",
++    aboutText1:
++      "Hurrah Mercerie nɔ d'alɔ mɛ e yí wǎn nú avɔtɔtɔ́ lɛ ɖò azɔ̌ yetɔn lɛ mɛ : avɔtɔ́ mashin, avɔ̀, kàn kpo nǔ ɖevo lɛ kpo.",
++    aboutText2:
++      "Nǔ e mǐ jló é ɖíe : bo avɔtɔtɔ́ ná yá nú mɛ bǐ, bɔ mɛ bǐ ná mɔ nǔ e é ná zán dó bló nǔ tɔn lɛ é bɔ̀bɔ̀.",
++    contactUs: "Ylɔ́ mǐ",
++    pillars: ["Mashin lɛ", "Avɔ̀ kpo kàn kpo", "Nǔ ɖevo lɛ", "Nǔ yɔ̌yɔ́ bló"],
++    ctaTitle: "A ko ɖó gbesisɔ nú nǔ yɔ̌yɔ́ e a na bló é à ?",
++    ctaText: "Kpɔ́n nǔ mǐtɔn lɛ bo mɔ nǔ e na d'alɔ we ɖò azɔ̌ towe lɛ mɛ é.",
++    ctaButton: "Kpɔ́n nǔ mǐtɔn lɛ",
++    featuredEyebrow: "Hurrah sɔ́ nǔ elɔ lɛ",
++    featuredTitle: "Nǔ e mǐ sɔ́ dó nukɔn lɛ",
++  },
++
++  machines: {
++    title: "Avɔtɔ́ mashin lɛ",
++    intro: "Mashin wè e Hurrah Mercerie ɖó lɛ é.",
++    seeMachine: "Kpɔ́n mashin ɔ",
++    detailText:
++      "Mashin ɖé e Hurrah Mercerie ɖó bo na d'alɔ we ɖò azɔ̌ avɔtɔtɔ́ tɔn towe lɛ mɛ.",
++    askInfo: "Byɔ́ xó ɖé",
++    items: {
++      singer: {
++        shortName: "Mashin Singer",
++        name: "Avɔtɔ́ mashin Singer",
++        type: "Xwé tɔn",
++        description: "Mashin e è nɔ zán ɖò azɔ̌ gbe ɖokpó ɖokpó tɔn lɛ mɛ.",
++      },
++      butterfly: {
++        shortName: "Mashin Butterfly",
++        name: "Avɔtɔ́ mashin Butterfly",
++        type: "Azɔ̌xwé tɔn",
++        description: "Mashin e syɛn bo nɔ wa azɔ̌ susu.",
++      },
++    },
++  },
++
++  catalogue: {
++    title: "Nǔ mǐtɔn lɛ",
++    intro: "Kpɔ́n mashin, kàn, avɔ̀, bouton kpo nǔ ɖevo lɛ kpo.",
++    searchPlaceholder: "Bà nǔ ɖé alǒ réf. ɖé…",
++    clear: "Ɖè",
++    search: "Bà",
++    availability: {
++      toutes: "Nǔ bǐ",
++      disponible: "É ɖò",
++      rupture: "É vɔ",
++    },
++    exploreByCategory: "Kpɔ́n ɖò akpá akpá",
++    allProducts: "Nǔ lɛ bǐ",
++    ourCategories: "Akpá mǐtɔn lɛ",
++    allOurProducts: "Nǔ mǐtɔn lɛ bǐ",
++    resultsFor: (q: string) => `Nǔ e è mɔ nú "${q}" lɛ`,
++    discoverProducts: "Kpɔ́n nǔ mǐtɔn lɛ",
++    categoryProducts: (c: string) => `${c}`,
++    resultCount: (n: number) => `Nǔ ${n}`,
++    noMatch: (q: string) => `È ma mɔ nǔ ɖé nú "${q}" ǎ.`,
++    emptyCategory: "Nǔ ɖé ma ko ɖò akpá elɔ mɛ ǎ.",
++    seeAllProducts: "Kpɔ́n nǔ lɛ bǐ",
++    categoryEyebrow: "Akpá",
++  },
++
++  product: {
++    back: "← Nǔ lɛ",
++    similar: "Nǔ ɖevo e ɖí i lɛ",
++    quickView: "Kpɔ́n bléblé",
++    close: "Sú",
++    fullPage: "Kpɔ́n xó tɔn lɛ bǐ →",
++    addToWishlist: "Sɔ́ dó nǔ e un yí wǎn nú lɛ mɛ",
++    removeFromWishlist: "Ɖè sín nǔ e un yí wǎn nú lɛ mɛ",
++  },
++
++  stock: {
++    out: "É vɔ",
++    low: (n: number) => `${n} ɖéé kpò`,
++    available: "É ɖò",
++  },
++
++  addToCart: {
++    add: "Sɔ́ dó panier mɛ",
++    added: "É yì panier mɛ ✓",
++    out: "É vɔ",
++  },
++
++  reviews: {
++    title: "Nǔxɔ̀tɔ́ lɛ sín linlin",
++    count: (n: number) => `linlin ${n}`,
++    none: "Mɛ ɖé ma ko ɖɔ linlin tɔn dó nǔ elɔ wu ǎ.",
++    leave: "Ɖɔ linlin towe",
++    thanksPublished: "A wà nǔ ! Linlin towe ko ɖò wema jí.",
++    thanksToast: "A wà nǔ ɖò linlin towe wu !",
++    namePlaceholder: "Nyǐkɔ́ towe",
++    commentPlaceholder: "Xó towe (é ma jɛ dandan ǎ)",
++    sending: "É ɖò yiyi wɛ…",
++    publish: "Sɛ́ linlin ce",
++    starLabel: (n: number) => `sunwlɛ̌ví ${n}`,
++  },
++
++  cart: {
++    title: "Panier towe",
++    empty: "Nǔ ɖé ɖò panier towe mɛ ǎ.",
++    remove: "Ɖè",
++    checking: "Mǐ ɖò kpɔ́n wɛ…",
++    apply: "Zán",
++    withdraw: "Ɖè",
++    promoInvalid: "Code promo ɔ ma sɔ ǎ alǒ hwenu tɔn ko wá yì.",
++    promoApplied: (code: string, pct: number) =>
++      `Code "${code}" ɖò azɔ̌ wa wɛ : -${pct}%`,
++    discount: (pct: number) => `Akwɛ́ e è ɖè (${pct}%)`,
++    checkout: "Byɔ́ nǔ lɛ",
++    decrease: "Ɖè ɖokpó",
++    increase: "Yí ɖokpó dó",
++  },
++
++  checkout: {
++    title: "Byɔ́ nǔ lɛ",
++    subtotal: (v: string) => `Akwɛ́ nǔ lɛ tɔn : ${v}`,
++    total: (v: string) => `Akwɛ́ bǐ : ${v}`,
++    paymentAccepted: "Ali e a sixu sú akwɛ́ gbɔn é :",
++    cashOnDelivery: "Sú akwɛ́ hwenu è hɛn nǔ wá é",
++    name: "Nyǐkɔ́ towe bǐ",
++    phone: "Alokan",
++    address: "Fí e a nɔ nɔ",
++    notes: "Xó ɖevo lɛ",
++    confirm: "Sɛ́ nǔ byɔ́byɔ́ ɔ",
++    whatsappDirect: "Byɔ́ nǔ lɛ gbɔn WhatsApp jí",
++    sending: "É ɖò yiyi wɛ...",
++    emptyCart: "Nǔ ɖé ɖò panier towe mɛ ǎ.",
++    saveError: "Nǔ ɖé gblé. Vɔ́ bló.",
++    success: "Mǐ mɔ nǔ byɔ́byɔ́ towe.",
++    successTitle: "Mǐ mɔ nǔ byɔ́byɔ́ towe !",
++    successText: (phone: string) =>
++      `Hurrah Mercerie na ylɔ́ we ɖò ${phone} jí bo na ɖɔ nǔ byɔ́byɔ́ towe sín xó.`,
++    whatsappConfirm: "Ɖɔ ɖò WhatsApp jí lɔ",
++    wa: {
++      intro: "Kúdo Hurrah Mercerie, un jló na byɔ́ nǔ elɔ lɛ :",
++      subtotal: "Akwɛ́ nǔ lɛ tɔn :",
++      total: "Akwɛ́ bǐ :",
++      name: "Nyǐkɔ́ :",
++      phone: "Alokan :",
++      address: "Fí e un nɔ nɔ :",
++      notes: "Xó ɖevo :",
++    },
++  },
++
++  favorites: {
++    title: "Nǔ e un yí wǎn nú lɛ",
++    empty: "A ko sɔ́ nǔ ɖé dó fí ǎ.",
++  },
++
++  tracking: {
++    title: "Kpɔ́n nǔ e un byɔ́ lɛ",
++    intro: "Wlan alokan e a zán hwenu a byɔ́ nǔ é.",
++    placeholder: "Alokan towe",
++    searching: "Mǐ ɖò bà wɛ…",
++    search: "Bà",
++    none: "Mǐ ma mɔ nǔ byɔ́byɔ́ ɖé nú alokan elɔ ǎ.",
++    status: {
++      new: "Yɔ̌yɔ́",
++      confirmed: "Mǐ ɖɔ ɛɛn",
++      preparing: "Mǐ ɖò bló wɛ",
++      delivered: "È ko hɛn wá",
++      cancelled: "È ɖè",
++    },
++  },
++
++  kits: {
++    metaTitle: "Kits avɔtɔtɔ́ tɔn",
++    metaDescription: "Kits e mǐ ko kplé gbesisɔ nú we.",
++    title: "Kits avɔtɔtɔ́ tɔn",
++    intro: "Nǔ e mǐ ko kplé dó fí ɖokpó nú we, bo a na bɛ́ azɔ̌ towe ɖò ali ɖagbe jí.",
++    empty: "Kit ɖé ma ko ɖò fí ǎ.",
++  },
++
++  blog: {
++    metaTitle: "Nǔnywɛ́ avɔtɔtɔ́ tɔn",
++    metaDescription: "Nǔnywɛ́ kpo xó yɔ̌yɔ́ lɛ kpo sín Hurrah Mercerie.",
++    title: "Nǔnywɛ́ avɔtɔtɔ́ tɔn",
++    intro: "Nǔnywɛ́ e na d'alɔ we bo a na sɔ́ nǔ avɔtɔtɔ́ tɔn ɖagbe lɛ.",
++    empty: "Mǐ ma ko wlan xó ɖé ǎ.",
++    read: "Xà →",
++    back: "← Nǔnywɛ́ avɔtɔtɔ́ tɔn",
++    articleFallback: "Xó",
++  },
++
++  contact: {
++    title: "Ylɔ́ mǐ",
++    intro:
++      "Nú a ɖó kanbyɔ ɖé dó nǔ mǐtɔn lɛ, mashin lɛ alǒ nǔ byɔ́byɔ́ ɖé wu ɔ, ylɔ́ Hurrah Mercerie. Mǐ nɔ yí gbè bléblé ɖò WhatsApp jí.",
++    phoneLabel: "Alokan / WhatsApp",
++    addressLabel: "Fí e mǐ ɖè",
++    name: "Nyǐkɔ́ towe",
++    phone: "Alokan towe",
++    message: "Xó towe",
++    fillAll: "Wlan nǔ lɛ bǐ.",
++    send: "Sɛ́ ɖò WhatsApp jí",
++    wa: {
++      greeting: "Kúdo Hurrah Mercerie,",
++      name: "Nyǐkɔ́ :",
++      phone: "Alokan :",
++    },
++  },
++
++  about: {
++    title: "Xó dó mǐ wu",
++    text1:
++      "Hurrah Mercerie nɔ d'alɔ mɛ e yí wǎn nú avɔtɔtɔ́ lɛ, kpo avɔtɔ́ mashin, avɔ̀, kàn kpo nǔ ɖevo lɛ kpo.",
++    text2:
++      "Nǔ e mǐ jló é wɛ nyí ɖɔ avɔtɔtɔ́ ná yá nú mɛ bǐ, bɔ mɛ bǐ na mɔ nǔ lɛ bo byɔ́ bɔ̀bɔ̀.",
++  },
++
++  social: {
++    eyebrow: "Nǔ e è bló lɛ",
++    title: "Nǔ e nǔxɔ̀tɔ́ mǐtɔn lɛ nɔ bló lɛ",
++  },
++};
+diff --git a/lib/i18n/localized.ts b/lib/i18n/localized.ts
+new file mode 100644
+index 0000000..1dd5d60
+--- /dev/null
++++ b/lib/i18n/localized.ts
+@@ -0,0 +1,26 @@
++import type { Locale } from "./config";
++
++/**
++ * Renvoie la version traduite d'un champ Supabase (ex. `name_en`, `name_fon`)
++ * quand elle existe ; sinon la version française. Un produit n'apparaît donc
++ * jamais vide.
++ *
++ *   tr(product, "name", locale)
++ */
++export function tr(
++  row: Record<string, unknown> | null | undefined,
++  field: string,
++  locale: Locale
++): string {
++  if (!row) return "";
++
++  if (locale !== "fr") {
++    const translated = row[`${field}_${locale}`];
++    if (typeof translated === "string" && translated.trim() !== "") {
++      return translated;
++    }
++  }
++
++  const fr = row[field];
++  return typeof fr === "string" ? fr : "";
++}
+diff --git a/lib/i18n/server.ts b/lib/i18n/server.ts
+new file mode 100644
+index 0000000..b97ac0d
+--- /dev/null
++++ b/lib/i18n/server.ts
+@@ -0,0 +1,15 @@
++import { cookies } from "next/headers";
++import { dictionaries } from "./dictionaries";
++import { LOCALE_COOKIE, normalizeLocale, type Locale } from "./config";
++
++/** Langue choisie par le visiteur (cookie), français par défaut. */
++export async function getLocale(): Promise<Locale> {
++  const store = await cookies();
++  return normalizeLocale(store.get(LOCALE_COOKIE)?.value);
++}
++
++/** À utiliser dans les composants serveur : const { t, locale } = await getI18n(); */
++export async function getI18n() {
++  const locale = await getLocale();
++  return { locale, t: dictionaries[locale] };
++}
+diff --git a/lib/placeholder.ts b/lib/placeholder.ts
+index 12e0a81..1d9c6c1 100644
+--- a/lib/placeholder.ts
++++ b/lib/placeholder.ts
+@@ -1,2 +1,12 @@
+-export const NO_IMAGE_PLACEHOLDER =
+-  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 400'%3E%3Crect width='400' height='400' fill='%23f3eee7'/%3E%3Cg fill='none' stroke='%23d4c9b8' stroke-width='10' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='200' cy='150' r='55'/%3E%3Cpath d='M200 205v90M160 250h80M175 320c0-15 11-25 25-25s25 10 25 25'/%3E%3C/g%3E%3Ctext x='200' y='355' font-family='Arial, sans-serif' font-size='20' fill='%23b0a290' text-anchor='middle'%3EPhoto à venir%3C/text%3E%3C/svg%3E";
++import type { Locale } from "@/lib/i18n/config";
++
++function buildPlaceholder(label: string) {
++  return `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 400'%3E%3Crect width='400' height='400' fill='%23f3eee7'/%3E%3Cg fill='none' stroke='%23d4c9b8' stroke-width='10' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='200' cy='150' r='55'/%3E%3Cpath d='M200 205v90M160 250h80M175 320c0-15 11-25 25-25s25 10 25 25'/%3E%3C/g%3E%3Ctext x='200' y='355' font-family='Arial, sans-serif' font-size='20' fill='%23b0a290' text-anchor='middle'%3E${encodeURIComponent(label)}%3C/text%3E%3C/svg%3E`;
++}
++
++export const NO_IMAGE_PLACEHOLDER = buildPlaceholder("Photo à venir");
++const NO_IMAGE_PLACEHOLDER_EN = buildPlaceholder("Photo coming soon");
++
++export function getPlaceholder(locale: Locale) {
++  return locale === "en" ? NO_IMAGE_PLACEHOLDER_EN : NO_IMAGE_PLACEHOLDER;
++}
+diff --git a/lib/types.ts b/lib/types.ts
+index e6ccede..5fdd805 100644
+--- a/lib/types.ts
++++ b/lib/types.ts
+@@ -2,6 +2,8 @@ export type Category = {
+   id: string;
+   name: string;
+   description: string | null;
++  name_en?: string | null;
++  description_en?: string | null;
+ };
+ 
+ export type Product = {
+@@ -18,6 +20,12 @@ export type Product = {
+   color?: string | null;
+   size?: string | null;
+   format?: string | null;
++  // Versions anglaises (facultatives, voir supabase/i18n-english.sql)
++  name_en?: string | null;
++  description_en?: string | null;
++  color_en?: string | null;
++  size_en?: string | null;
++  format_en?: string | null;
+ };
+ 
+ export type CartItem = Product & { quantity: number };
+diff --git a/supabase/i18n-english.sql b/supabase/i18n-english.sql
+new file mode 100644
+index 0000000..02a80b3
+--- /dev/null
++++ b/supabase/i18n-english.sql
+@@ -0,0 +1,99 @@
++-- ============================================================
++-- Vague 4 : traduction anglaise (FR / EN)
++-- À exécuter UNE fois dans Supabase > SQL Editor, AVANT de déployer le code.
++-- Les colonnes *_en sont facultatives : si elles sont vides,
++-- le site affiche automatiquement la version française.
++-- ============================================================
++
++alter table products     add column if not exists name_en        text;
++alter table products     add column if not exists description_en text;
++alter table products     add column if not exists color_en       text;
++alter table products     add column if not exists size_en        text;
++alter table products     add column if not exists format_en      text;
++
++alter table categories   add column if not exists name_en        text;
++alter table categories   add column if not exists description_en text;
++
++alter table blog_posts   add column if not exists title_en       text;
++alter table blog_posts   add column if not exists excerpt_en     text;
++alter table blog_posts   add column if not exists content_en     text;
++
++alter table bundles      add column if not exists name_en        text;
++alter table bundles      add column if not exists description_en text;
++
++alter table bundle_items add column if not exists label_en       text;
++
++alter table social_posts add column if not exists caption_en     text;
++
++-- ------------------------------------------------------------
++-- Catégories du catalogue de démarrage
++-- (seulement si la version anglaise n'a pas déjà été saisie)
++-- ------------------------------------------------------------
++
++update categories set name_en = 'Sewing machines', description_en = 'Home and industrial sewing machines.' where name = 'Machines' and name_en is null;
++update categories set name_en = 'Threads & Yarns', description_en = 'Sewing and embroidery threads, plus yarns for all your projects.' where name = 'Fils & Laines' and name_en is null;
++update categories set name_en = 'Duchess Satin', description_en = 'Duchess satin fabrics in a range of colours.' where name = 'Duchesse' and name_en is null;
++update categories set name_en = 'Buttons', description_en = 'Buttons in all materials, sizes and colours.' where name = 'Boutons' and name_en is null;
++update categories set name_en = 'Other Fabrics', description_en = 'Poplin and other everyday fabrics.' where name = 'Tissus complémentaires' and name_en is null;
++update categories set name_en = 'Sewing Accessories', description_en = 'Needles, pins, scissors and small tools.' where name = 'Accessoires couture' and name_en is null;
++update categories set name_en = 'Zips & Fasteners', description_en = 'Zips, snap buttons and hooks.' where name = 'Fermetures & attaches' and name_en is null;
++update categories set name_en = 'Ribbons & Trims', description_en = 'Ribbons, lace and decorative braids.' where name = 'Rubans & décoration' and name_en is null;
++update categories set name_en = 'Elastics', description_en = 'Sewing elastics in several widths.' where name = 'Élastiques' and name_en is null;
++update categories set name_en = 'Interfacing & Reinforcement', description_en = 'Fusible interfacing and reinforcements.' where name = 'Entoilage & renfort' and name_en is null;
++
++-- ------------------------------------------------------------
++-- Produits du catalogue de démarrage (repérés par leur référence)
++-- ------------------------------------------------------------
++update products set name_en = 'Singer home sewing machine', description_en = 'Sturdy, easy-to-use treadle sewing machine for everyday sewing.', color_en = null, size_en = null, format_en = null where reference = 'HM-MAC-001' and name_en is null;
++update products set name_en = 'Butterfly industrial sewing machine', description_en = 'Industrial sewing machine designed for heavy-duty sewing and thick fabrics.', color_en = null, size_en = null, format_en = null where reference = 'HM-MAC-002' and name_en is null;
++update products set name_en = 'Sewing machine oil', description_en = 'Bottle of lubricating oil for regular maintenance of your sewing machine.', color_en = null, size_en = null, format_en = null where reference = 'HM-MAC-003' and name_en is null;
++update products set name_en = 'Sewing thread - White', description_en = 'Spool of strong polyester sewing thread, white.', color_en = 'White', size_en = null, format_en = '200m spool' where reference = 'HM-FIL-001' and name_en is null;
++update products set name_en = 'Sewing thread - Black', description_en = 'Spool of strong polyester sewing thread, black.', color_en = 'Black', size_en = null, format_en = '200m spool' where reference = 'HM-FIL-002' and name_en is null;
++update products set name_en = 'Sewing thread - Red', description_en = 'Spool of strong polyester sewing thread, red.', color_en = 'Red', size_en = null, format_en = '200m spool' where reference = 'HM-FIL-003' and name_en is null;
++update products set name_en = 'Sewing thread - Blue', description_en = 'Spool of strong polyester sewing thread, blue.', color_en = 'Blue', size_en = null, format_en = '200m spool' where reference = 'HM-FIL-004' and name_en is null;
++update products set name_en = 'Sewing thread - Beige', description_en = 'Spool of strong polyester sewing thread, beige.', color_en = 'Beige', size_en = null, format_en = '200m spool' where reference = 'HM-FIL-005' and name_en is null;
++update products set name_en = 'Sewing thread - Pink', description_en = 'Spool of strong polyester sewing thread, pink.', color_en = 'Pink', size_en = null, format_en = '200m spool' where reference = 'HM-FIL-006' and name_en is null;
++update products set name_en = 'Multicolour embroidery thread', description_en = 'Assortment of brightly coloured embroidery threads, ideal for hand embroidery.', color_en = 'Multicolour', size_en = null, format_en = 'Spool' where reference = 'HM-FIL-007' and name_en is null;
++update products set name_en = 'Elastic thread', description_en = 'Elastic thread for stretchy finishes and smocking.', color_en = null, size_en = null, format_en = 'Spool' where reference = 'HM-FIL-008' and name_en is null;
++update products set name_en = 'Metallic embroidery thread', description_en = 'Metallic-effect embroidery thread for decorative finishes.', color_en = 'Gold', size_en = null, format_en = 'Spool' where reference = 'HM-FIL-009' and name_en is null;
++update products set name_en = 'Knitting yarn - Red', description_en = 'Ball of knitting yarn, red.', color_en = 'Red', size_en = null, format_en = '100g ball' where reference = 'HM-LAI-001' and name_en is null;
++update products set name_en = 'Knitting yarn - Blue', description_en = 'Ball of knitting yarn, blue.', color_en = 'Blue', size_en = null, format_en = '100g ball' where reference = 'HM-LAI-002' and name_en is null;
++update products set name_en = 'Knitting yarn - Grey', description_en = 'Ball of knitting yarn, grey.', color_en = 'Grey', size_en = null, format_en = '100g ball' where reference = 'HM-LAI-003' and name_en is null;
++update products set name_en = 'Knitting yarn - White', description_en = 'Ball of knitting yarn, white.', color_en = 'White', size_en = null, format_en = '100g ball' where reference = 'HM-LAI-004' and name_en is null;
++update products set name_en = 'Polyester buttons (pack of 12)', description_en = 'Pack of 12 polyester buttons, available in several colours.', color_en = 'Assorted', size_en = null, format_en = 'Pack of 12' where reference = 'HM-BOU-001' and name_en is null;
++update products set name_en = 'Wooden buttons (pack of 6)', description_en = 'Pack of 6 natural wood buttons with a handcrafted finish.', color_en = 'Natural wood', size_en = null, format_en = 'Pack of 6' where reference = 'HM-BOU-002' and name_en is null;
++update products set name_en = 'Metal buttons (pack of 6)', description_en = 'Pack of 6 gold-tone metal buttons for jackets and coats.', color_en = 'Gold', size_en = null, format_en = 'Pack of 6' where reference = 'HM-BOU-003' and name_en is null;
++update products set name_en = 'Crystal buttons (pack of 6)', description_en = 'Pack of 6 crystal-effect buttons for formal outfits.', color_en = 'Clear', size_en = null, format_en = 'Pack of 6' where reference = 'HM-BOU-004' and name_en is null;
++update products set name_en = 'Coconut buttons (pack of 6)', description_en = 'Pack of 6 coconut shell buttons with a natural look.', color_en = 'Natural', size_en = null, format_en = 'Pack of 6' where reference = 'HM-BOU-005' and name_en is null;
++update products set name_en = 'Snap buttons (pack of 10)', description_en = 'Pack of 10 metal snap buttons for quick fastening.', color_en = 'Silver', size_en = null, format_en = 'Pack of 10' where reference = 'HM-BOU-006' and name_en is null;
++update products set name_en = 'Duchess satin fabric - Red', description_en = 'Duchess satin fabric with a fluid drape, sold by the metre.', color_en = 'Red', size_en = null, format_en = 'By the metre' where reference = 'HM-DUC-001' and name_en is null;
++update products set name_en = 'Duchess satin fabric - Royal blue', description_en = 'Duchess satin fabric with a fluid drape, sold by the metre.', color_en = 'Royal blue', size_en = null, format_en = 'By the metre' where reference = 'HM-DUC-002' and name_en is null;
++update products set name_en = 'Duchess satin fabric - Emerald green', description_en = 'Duchess satin fabric with a fluid drape, sold by the metre.', color_en = 'Emerald green', size_en = null, format_en = 'By the metre' where reference = 'HM-DUC-003' and name_en is null;
++update products set name_en = 'Duchess satin fabric - Gold', description_en = 'Lustrous duchess satin fabric, sold by the metre.', color_en = 'Gold', size_en = null, format_en = 'By the metre' where reference = 'HM-DUC-004' and name_en is null;
++update products set name_en = 'Duchess satin fabric - White', description_en = 'Duchess satin fabric, ideal for ceremonial outfits, sold by the metre.', color_en = 'White', size_en = null, format_en = 'By the metre' where reference = 'HM-DUC-005' and name_en is null;
++update products set name_en = 'Plain poplin - White', description_en = 'Plain cotton poplin fabric, white, sold by the metre.', color_en = 'White', size_en = null, format_en = 'By the metre' where reference = 'HM-POP-001' and name_en is null;
++update products set name_en = 'Plain poplin - Sky blue', description_en = 'Plain cotton poplin fabric, sky blue, sold by the metre.', color_en = 'Sky blue', size_en = null, format_en = 'By the metre' where reference = 'HM-POP-002' and name_en is null;
++update products set name_en = 'Printed poplin', description_en = 'Poplin fabric with printed patterns, sold by the metre.', color_en = 'Printed', size_en = null, format_en = 'By the metre' where reference = 'HM-POP-003' and name_en is null;
++update products set name_en = 'Hand sewing needles (pack)', description_en = 'Assorted pack of hand sewing needles in several sizes.', color_en = null, size_en = 'Assorted', format_en = 'Pack' where reference = 'HM-ACC-001' and name_en is null;
++update products set name_en = 'Sewing machine needles (pack of 10)', description_en = 'Pack of 10 sewing machine needles, compatible with common models.', color_en = null, size_en = null, format_en = 'Pack of 10' where reference = 'HM-ACC-002' and name_en is null;
++update products set name_en = 'Sewing pins (box)', description_en = 'Box of pins with heads for assembling and pattern making.', color_en = null, size_en = null, format_en = 'Box' where reference = 'HM-ACC-003' and name_en is null;
++update products set name_en = 'Professional sewing scissors', description_en = 'Steel sewing scissors for a clean cut through fabric.', color_en = null, size_en = null, format_en = null where reference = 'HM-ACC-004' and name_en is null;
++update products set name_en = 'Seam ripper', description_en = 'Seam ripper for neatly undoing stitches.', color_en = null, size_en = null, format_en = null where reference = 'HM-ACC-005' and name_en is null;
++update products set name_en = 'Tailor''s tape measure', description_en = 'Flexible graduated tape measure for taking measurements.', color_en = null, size_en = null, format_en = null where reference = 'HM-ACC-006' and name_en is null;
++update products set name_en = 'Sewing machine bobbins (pack of 5)', description_en = 'Pack of 5 bobbins compatible with home sewing machines.', color_en = null, size_en = null, format_en = 'Pack of 5' where reference = 'HM-ACC-007' and name_en is null;
++update products set name_en = 'Thimble', description_en = 'Metal thimble to protect your finger while sewing.', color_en = null, size_en = null, format_en = null where reference = 'HM-ACC-008' and name_en is null;
++update products set name_en = '20cm zip', description_en = 'Standard 20cm zip, available in several colours.', color_en = 'Assorted', size_en = null, format_en = null where reference = 'HM-FER-001' and name_en is null;
++update products set name_en = '40cm zip', description_en = 'Long 40cm zip for jackets and bags.', color_en = 'Assorted', size_en = null, format_en = null where reference = 'HM-FER-002' and name_en is null;
++update products set name_en = 'Metal snap buttons (pack of 12)', description_en = 'Pack of 12 metal snap buttons for quick fastening.', color_en = 'Silver', size_en = null, format_en = 'Pack of 12' where reference = 'HM-FER-003' and name_en is null;
++update products set name_en = 'Hooks and eyes (set)', description_en = 'Set of metal hooks and eyes for finishing skirts and trousers.', color_en = null, size_en = null, format_en = 'Set' where reference = 'HM-FER-004' and name_en is null;
++update products set name_en = 'Satin ribbon - Red', description_en = 'Roll of shiny satin ribbon, red.', color_en = 'Red', size_en = null, format_en = 'Roll' where reference = 'HM-RUB-001' and name_en is null;
++update products set name_en = 'Satin ribbon - White', description_en = 'Roll of shiny satin ribbon, white.', color_en = 'White', size_en = null, format_en = 'Roll' where reference = 'HM-RUB-002' and name_en is null;
++update products set name_en = 'Grosgrain ribbon - Black', description_en = 'Roll of textured grosgrain ribbon, black.', color_en = 'Black', size_en = null, format_en = 'Roll' where reference = 'HM-RUB-003' and name_en is null;
++update products set name_en = 'Decorative lace', description_en = 'Decorative lace for finishes and embellishments, sold by the metre.', color_en = 'White', size_en = null, format_en = 'By the metre' where reference = 'HM-RUB-004' and name_en is null;
++update products set name_en = 'Gold decorative braid', description_en = 'Gold decorative braid for premium finishes, sold by the metre.', color_en = 'Gold', size_en = null, format_en = 'By the metre' where reference = 'HM-RUB-005' and name_en is null;
++update products set name_en = 'Flat elastic 2cm', description_en = 'Flat sewing elastic, 2cm wide, sold by the metre.', color_en = null, size_en = null, format_en = 'By the metre' where reference = 'HM-ELA-001' and name_en is null;
++update products set name_en = 'Thin elastic 5mm', description_en = 'Thin elastic for light finishes, 5mm wide, sold by the metre.', color_en = null, size_en = null, format_en = 'By the metre' where reference = 'HM-ELA-002' and name_en is null;
++update products set name_en = 'Wide elastic 4cm', description_en = 'Wide elastic for waistbands, 4cm wide, sold by the metre.', color_en = null, size_en = null, format_en = 'By the metre' where reference = 'HM-ELA-003' and name_en is null;
++update products set name_en = 'Lightweight fusible interfacing', description_en = 'Lightweight fusible interfacing to stiffen collars and cuffs, sold by the metre.', color_en = null, size_en = null, format_en = 'By the metre' where reference = 'HM-ENT-001' and name_en is null;
++update products set name_en = 'Heavyweight fusible interfacing', description_en = 'Heavyweight fusible interfacing for structured reinforcement, sold by the metre.', color_en = null, size_en = null, format_en = 'By the metre' where reference = 'HM-ENT-002' and name_en is null;
++update products set name_en = 'Stiffening interlining', description_en = 'Reinforcing interlining for collars, waistbands and stiff finishes, sold by the metre.', color_en = null, size_en = null, format_en = 'By the metre' where reference = 'HM-ENT-003' and name_en is null;

@@ -5,7 +5,7 @@ import BundleManager from "@/components/BundleManager";
 export default async function BundlesAdmin() {
   const { data } = await supabase
     .from("bundles")
-    .select("*, bundle_items(id, label)")
+    .select("*, bundle_items(*)")
     .order("created_at", { ascending: false });
 
   return (

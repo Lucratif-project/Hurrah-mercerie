@@ -3,12 +3,15 @@
 import { useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useToast } from "./Toast";
+import EnglishFields, { englishFromRow, englishValues } from "./EnglishFields";
 
 type Category = {
   id: string;
   name: string;
   description: string | null;
   image_url: string | null;
+  name_en?: string | null;
+  description_en?: string | null;
 };
 
 export default function CategoryManager({
@@ -23,12 +26,19 @@ export default function CategoryManager({
   const [editing, setEditing] = useState<Category | null>(null);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [english, setEnglish] = useState<Record<string, string>>({});
+
+  const englishFields = [
+    { key: "name_en", label: "Nom de la catégorie", source: name },
+    { key: "description_en", label: "Description", source: description, multiline: true },
+  ];
 
   function resetForm() {
     setEditing(null);
     setName("");
     setDescription("");
     setImageUrl("");
+    setEnglish({});
   }
 
   function startEdit(category: Category) {
@@ -36,6 +46,7 @@ export default function CategoryManager({
     setName(category.name);
     setDescription(category.description || "");
     setImageUrl(category.image_url || "");
+    setEnglish(englishFromRow(englishFields, category));
     setMessage("");
   }
 
@@ -52,6 +63,7 @@ export default function CategoryManager({
       name: name.trim(),
       description: description.trim() || null,
       image_url: imageUrl.trim() || null,
+      ...englishValues(englishFields, english),
     };
 
     const result = editing
@@ -121,6 +133,12 @@ export default function CategoryManager({
             placeholder="URL image de catégorie"
             className="w-full rounded-2xl border px-5 py-4"
           />
+
+          <EnglishFields
+            fields={englishFields}
+            values={english}
+            onChange={setEnglish}
+          />
         </div>
 
         {message && (
@@ -163,7 +181,14 @@ export default function CategoryManager({
                 className="flex items-center justify-between gap-4 rounded-2xl border p-4"
               >
                 <div>
-                  <p className="font-bold">{category.name}</p>
+                  <p className="font-bold">
+                    {category.name}
+                    {!category.name_en?.trim() && (
+                      <span className="ml-2 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700">
+                        EN à traduire
+                      </span>
+                    )}
+                  </p>
                   {category.description && (
                     <p className="text-sm text-neutral-500">
                       {category.description}

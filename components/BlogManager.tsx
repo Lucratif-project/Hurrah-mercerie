@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useToast } from "./Toast";
+import EnglishFields, { englishFromRow, englishValues } from "./EnglishFields";
 
 type Post = {
   id: string;
@@ -12,6 +13,9 @@ type Post = {
   content: string;
   cover_image: string | null;
   status: string;
+  title_en?: string | null;
+  excerpt_en?: string | null;
+  content_en?: string | null;
 };
 
 function slugify(text: string) {
@@ -32,6 +36,13 @@ export default function BlogManager({ posts }: { posts: Post[] }) {
   const [coverImage, setCoverImage] = useState("");
   const [status, setStatus] = useState("published");
   const [busy, setBusy] = useState(false);
+  const [english, setEnglish] = useState<Record<string, string>>({});
+
+  const englishFields = [
+    { key: "title_en", label: "Titre", source: title },
+    { key: "excerpt_en", label: "Résumé court", source: excerpt, multiline: true },
+    { key: "content_en", label: "Contenu complet", source: content, multiline: true },
+  ];
 
   function resetForm() {
     setEditing(null);
@@ -40,6 +51,7 @@ export default function BlogManager({ posts }: { posts: Post[] }) {
     setContent("");
     setCoverImage("");
     setStatus("published");
+    setEnglish({});
   }
 
   function edit(post: Post) {
@@ -49,6 +61,7 @@ export default function BlogManager({ posts }: { posts: Post[] }) {
     setContent(post.content);
     setCoverImage(post.cover_image || "");
     setStatus(post.status);
+    setEnglish(englishFromRow(englishFields, post));
   }
 
   async function save(e: React.FormEvent) {
@@ -67,6 +80,7 @@ export default function BlogManager({ posts }: { posts: Post[] }) {
       content: content.trim(),
       cover_image: coverImage.trim() || null,
       status,
+      ...englishValues(englishFields, english),
     };
 
     const result = editing
@@ -144,6 +158,12 @@ export default function BlogManager({ posts }: { posts: Post[] }) {
             <option value="published">Publié</option>
             <option value="draft">Brouillon</option>
           </select>
+
+          <EnglishFields
+            fields={englishFields}
+            values={english}
+            onChange={setEnglish}
+          />
         </div>
 
         <div className="mt-6 flex gap-3">
@@ -179,7 +199,14 @@ export default function BlogManager({ posts }: { posts: Post[] }) {
                 className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border p-4"
               >
                 <div>
-                  <p className="font-bold">{post.title}</p>
+                  <p className="font-bold">
+                    {post.title}
+                    {!post.title_en?.trim() && (
+                      <span className="ml-2 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700">
+                        EN à traduire
+                      </span>
+                    )}
+                  </p>
                   <p className="text-sm text-neutral-500">
                     {post.status === "published" ? "Publié" : "Brouillon"} · /blog/{post.slug}
                   </p>

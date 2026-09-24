@@ -8,8 +8,10 @@ import ProductCard from "@/components/ProductCard";
 import { useWishlist } from "@/lib/useWishlist";
 import { supabase } from "@/lib/supabase";
 import type { Product } from "@/lib/types";
+import { useI18n } from "@/lib/i18n/client";
 
 export default function Favoris() {
+  const { t } = useI18n();
   const { ids } = useWishlist();
   const [products, setProducts] = useState<Product[] | null>(null);
 
@@ -49,21 +51,21 @@ export default function Favoris() {
             Hurrah Mercerie
           </p>
 
-          <h1 className="mt-3 text-5xl font-black">Mes favoris</h1>
+          <h1 className="mt-3 text-5xl font-black">{t.favorites.title}</h1>
 
           {products === null ? (
-            <p className="mt-10 text-neutral-500">Chargement…</p>
+            <p className="mt-10 text-neutral-500">{t.common.loading}</p>
           ) : products.length === 0 ? (
             <div className="mt-10 rounded-3xl bg-white p-10 text-center">
               <p className="font-semibold text-neutral-600">
-                Vous n&apos;avez pas encore de favoris.
+                {t.favorites.empty}
               </p>
 
               <Link
                 href="/catalogue"
                 className="mt-5 inline-block rounded-full bg-neutral-950 px-6 py-3 text-sm font-bold text-white"
               >
-                Voir le catalogue
+                {t.common.viewCatalogue}
               </Link>
             </div>
           ) : (

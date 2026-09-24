@@ -4,6 +4,8 @@ import SiteFooter from "@/components/SiteFooter";
 import ProductCard from "@/components/ProductCard";
 import CatalogueFilters from "@/components/CatalogueFilters";
 import { supabase } from "@/lib/supabase";
+import { getI18n } from "@/lib/i18n/server";
+import { tr } from "@/lib/i18n/localized";
 
 const FALLBACK_IMAGE = "/images/categories/fils.jpeg";
 
@@ -17,19 +19,27 @@ type Props = {
 
 export default async function CataloguePage({ searchParams }: Props) {
   const params = await searchParams;
+  const { t, locale } = await getI18n();
   const selectedCategory = params.categorie || "Toutes";
   const searchTerm = (params.q || "").trim();
   const availability = params.disponibilite || "toutes";
 
   const { data: categoriesData } = await supabase
     .from("categories")
-    .select("name, image_url")
+    .select("*")
     .order("name");
 
+  // `name` (français) reste la valeur utilisée dans l'URL ;
+  // `label` est le nom affiché dans la langue du visiteur.
   const categories = (categoriesData || []).map((c) => ({
-    name: c.name,
+    name: c.name as string,
+    label: tr(c, "name", locale),
     image: c.image_url || FALLBACK_IMAGE,
   }));
+
+  const selectedLabel =
+    categories.find((c) => c.name === selectedCategory)?.label ||
+    selectedCategory;
 
   let query = supabase
     .from("products")
@@ -56,9 +66,11 @@ export default async function CataloguePage({ searchParams }: Props) {
 
   if (searchTerm) {
     const escaped = searchTerm.replace(/[%,]/g, "");
-    query = query.or(
-      `name.ilike.%${escaped}%,description.ilike.%${escaped}%,reference.ilike.%${escaped}%`
-    );
+    const fields = ["name", "description", "reference"];
+    // En anglais, on cherche aussi dans les champs traduits.
+    // (Le fon utilise les noms de produits en français pour l'instant.)
+    if (locale === "en") fields.push("name_en", "description_en");
+    query = query.or(fields.map((f) => `${f}.ilike.%${escaped}%`).join(","));
   }
 
   if (availability === "disponible") {
@@ -90,11 +102,11 @@ export default async function CataloguePage({ searchParams }: Props) {
           </p>
 
           <h1 className="mt-3 text-5xl font-black">
-            Notre catalogue
+            {t.catalogue.title}
           </h1>
 
           <p className="mt-4 max-w-2xl text-neutral-600">
-            Découvrez nos machines, fils, tissus, boutons et accessoires.
+            {t.catalogue.intro}
           </p>
 
           {/* RECHERCHE + DISPONIBILITÉ */}
@@ -107,7 +119,7 @@ export default async function CataloguePage({ searchParams }: Props) {
           {/* FILTRES CATÉGORIE */}
           <section className="mt-8">
             <h2 className="text-2xl font-black">
-              Explorer par catégorie
+              {t.catalogue.exploreByCategory}
             </h2>
 
             <div className="mt-6 flex flex-wrap gap-3">
@@ -127,7 +139,7 @@ export default async function CataloguePage({ searchParams }: Props) {
                     : "bg-white hover:bg-neutral-950 hover:text-white"
                 }`}
               >
-                Tous les produits
+                {t.catalogue.allProducts}
               </Link>
 
               {categories.map((category) => (
@@ -149,7 +161,7 @@ export default async function CataloguePage({ searchParams }: Props) {
                       : "bg-white hover:bg-orange-600 hover:text-white"
                   }`}
                 >
-                  {category.name}
+                  {category.label}
                 </Link>
               ))}
             </div>
@@ -159,7 +171,7 @@ export default async function CataloguePage({ searchParams }: Props) {
           {selectedCategory === "Toutes" && !searchTerm && (
             <section className="mt-12">
               <h2 className="text-2xl font-black">
-                Nos catégories
+                {t.catalogue.ourCategories}
               </h2>
 
               <div className="mt-6 grid gap-6 md:grid-cols-3">
@@ -173,17 +185,17 @@ export default async function CataloguePage({ searchParams }: Props) {
                   >
                     <img
                       src={category.image}
-                      alt={category.name}
+                      alt={category.label}
                       className="h-64 w-full object-cover transition duration-300 group-hover:scale-105"
                     />
 
                     <div className="p-6">
                       <h3 className="text-2xl font-black">
-                        {category.name}
+                        {category.label}
                       </h3>
 
                       <p className="mt-3 font-semibold text-orange-600">
-                        Découvrir →
+                        {t.common.discoverArrow}
                       </p>
                     </div>
                   </Link>
@@ -196,22 +208,21 @@ export default async function CataloguePage({ searchParams }: Props) {
           <section className="mt-16">
             <p className="text-sm font-bold uppercase tracking-[0.2em] text-orange-600">
               {selectedCategory === "Toutes"
-                ? "Tous nos produits"
-                : selectedCategory}
+                ? t.catalogue.allOurProducts
+                : selectedLabel}
             </p>
 
             <div className="mt-2 flex flex-wrap items-end justify-between gap-3">
               <h2 className="text-3xl font-black">
                 {searchTerm
-                  ? `Résultats pour "${searchTerm}"`
+                  ? t.catalogue.resultsFor(searchTerm)
                   : selectedCategory === "Toutes"
-                  ? "Découvrez nos produits"
-                  : `Produits ${selectedCategory}`}
+                  ? t.catalogue.discoverProducts
+                  : t.catalogue.categoryProducts(selectedLabel)}
               </h2>
 
               <p className="text-sm font-semibold text-neutral-500">
-                {products.length}{" "}
-                {products.length > 1 ? "résultats" : "résultat"}
+                {t.catalogue.resultCount(products.length)}
               </p>
             </div>
 
@@ -228,15 +239,15 @@ export default async function CataloguePage({ searchParams }: Props) {
               <div className="mt-8 rounded-3xl bg-white p-10 text-center">
                 <p className="font-semibold text-neutral-600">
                   {searchTerm
-                    ? `Aucun produit ne correspond à "${searchTerm}".`
-                    : "Aucun produit publié dans cette catégorie pour le moment."}
+                    ? t.catalogue.noMatch(searchTerm)
+                    : t.catalogue.emptyCategory}
                 </p>
 
                 <Link
                   href="/catalogue"
                   className="mt-5 inline-block rounded-full bg-neutral-950 px-6 py-3 text-sm font-bold text-white"
                 >
-                  Voir tous les produits
+                  {t.catalogue.seeAllProducts}
                 </Link>
               </div>
             )}

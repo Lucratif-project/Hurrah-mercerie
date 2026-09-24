@@ -4,8 +4,9 @@ import { useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { formatPrice } from "@/lib/format";
 import { useToast } from "./Toast";
+import EnglishFields, { englishFromRow } from "./EnglishFields";
 
-type BundleItem = { id: string; label: string };
+type BundleItem = { id: string; label: string; label_en?: string | null };
 type Bundle = {
   id: string;
   name: string;
@@ -13,6 +14,8 @@ type Bundle = {
   price: number;
   image_url: string | null;
   status: string;
+  name_en?: string | null;
+  description_en?: string | null;
   bundle_items?: BundleItem[];
 };
 
@@ -25,6 +28,13 @@ export default function BundleManager({ bundles }: { bundles: Bundle[] }) {
   const [imageUrl, setImageUrl] = useState("");
   const [itemsText, setItemsText] = useState("");
   const [busy, setBusy] = useState(false);
+  const [english, setEnglish] = useState<Record<string, string>>({});
+
+  const englishFields = [
+    { key: "name_en", label: "Nom du kit", source: name },
+    { key: "description_en", label: "Description", source: description, multiline: true },
+    { key: "items_en", label: "Contenu du kit, un article par ligne", source: itemsText, multiline: true },
+  ];
 
   function resetForm() {
     setEditing(null);
@@ -33,6 +43,7 @@ export default function BundleManager({ bundles }: { bundles: Bundle[] }) {
     setPrice("");
     setImageUrl("");
     setItemsText("");
+    setEnglish({});
   }
 
   function edit(bundle: Bundle) {
@@ -42,6 +53,10 @@ export default function BundleManager({ bundles }: { bundles: Bundle[] }) {
     setPrice(String(bundle.price));
     setImageUrl(bundle.image_url || "");
     setItemsText((bundle.bundle_items || []).map((i) => i.label).join("\n"));
+    setEnglish({
+      ...englishFromRow(englishFields, bundle),
+      items_en: (bundle.bundle_items || []).map((i) => i.label_en || "").join("\n"),
+    });
   }
 
   async function save(e: React.FormEvent) {
@@ -58,6 +73,8 @@ export default function BundleManager({ bundles }: { bundles: Bundle[] }) {
       description: description.trim() || null,
       price: Number(price),
       image_url: imageUrl.trim() || null,
+      name_en: english.name_en?.trim() || null,
+      description_en: english.description_en?.trim() || null,
     };
 
     const result = editing
@@ -80,10 +97,17 @@ export default function BundleManager({ bundles }: { bundles: Bundle[] }) {
       .map((l) => l.trim())
       .filter(Boolean);
 
+    // Les lignes anglaises correspondent aux lignes françaises, dans le même ordre.
+    const labelsEn = (english.items_en || "").split("\n").map((l) => l.trim());
+
     if (labels.length) {
-      await supabase
-        .from("bundle_items")
-        .insert(labels.map((label) => ({ bundle_id: bundleId, label })));
+      await supabase.from("bundle_items").insert(
+        labels.map((label, i) => ({
+          bundle_id: bundleId,
+          label,
+          label_en: labelsEn[i] || null,
+        }))
+      );
     }
 
     setBusy(false);
@@ -150,6 +174,12 @@ export default function BundleManager({ bundles }: { bundles: Bundle[] }) {
             onChange={(e) => setItemsText(e.target.value)}
             placeholder={"Contenu du kit, un article par ligne :\nFil à coudre\nAiguilles\nCiseaux"}
             className="min-h-28 w-full rounded-2xl border px-5 py-4"
+          />
+
+          <EnglishFields
+            fields={englishFields}
+            values={english}
+            onChange={setEnglish}
           />
         </div>
 

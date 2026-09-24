@@ -1,3 +1,5 @@
-export function formatPrice(value: number) {
-  return new Intl.NumberFormat("fr-FR").format(value) + " FCFA";
+import { intlLocale, type Locale } from "@/lib/i18n/config";
+
+export function formatPrice(value: number, locale: Locale = "fr") {
+  return new Intl.NumberFormat(intlLocale(locale)).format(value) + " FCFA";
 }

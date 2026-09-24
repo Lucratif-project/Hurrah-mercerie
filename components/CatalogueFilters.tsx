@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { useI18n } from "@/lib/i18n/client";
 
 type Props = {
   selectedCategory: string;
@@ -14,6 +15,7 @@ export default function CatalogueFilters({
   searchTerm,
   availability,
 }: Props) {
+  const { t } = useI18n();
   const router = useRouter();
   const [value, setValue] = useState(searchTerm);
 
@@ -60,7 +62,7 @@ export default function CatalogueFilters({
             type="text"
             value={value}
             onChange={(e) => setValue(e.target.value)}
-            placeholder="Rechercher un produit, une couleur, une référence…"
+            placeholder={t.catalogue.searchPlaceholder}
             className="w-full bg-transparent text-sm font-medium outline-none placeholder:text-neutral-400"
           />
 
@@ -73,7 +75,7 @@ export default function CatalogueFilters({
               }}
               className="text-xs font-bold text-neutral-400 hover:text-neutral-700"
             >
-              Effacer
+              {t.catalogue.clear}
             </button>
           )}
 
@@ -81,16 +83,16 @@ export default function CatalogueFilters({
             type="submit"
             className="rounded-full bg-neutral-950 px-5 py-2 text-sm font-bold text-white transition hover:bg-orange-600"
           >
-            Rechercher
+            {t.catalogue.search}
           </button>
         </div>
       </form>
 
       <div className="flex gap-2">
         {[
-          { key: "toutes", label: "Toute disponibilité" },
-          { key: "disponible", label: "Disponible" },
-          { key: "rupture", label: "Rupture" },
+          { key: "toutes", label: t.catalogue.availability.toutes },
+          { key: "disponible", label: t.catalogue.availability.disponible },
+          { key: "rupture", label: t.catalogue.availability.rupture },
         ].map((option) => (
           <button
             key={option.key}

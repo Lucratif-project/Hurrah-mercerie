@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useToast } from "./Toast";
+import { useI18n } from "@/lib/i18n/client";
+import { formatDate } from "@/lib/i18n/config";
 
 type Review = {
   id: string;
@@ -39,6 +41,7 @@ export default function ProductReviews({
   productId: string;
   reviews: Review[];
 }) {
+  const { t, locale } = useI18n();
   const toast = useToast();
   const [name, setName] = useState("");
   const [rating, setRating] = useState(5);
@@ -70,7 +73,7 @@ export default function ProductReviews({
       return;
     }
 
-    toast.show("Merci pour votre avis !");
+    toast.show(t.reviews.thanksToast);
     setSubmitted(true);
     setName("");
     setComment("");
@@ -80,13 +83,13 @@ export default function ProductReviews({
   return (
     <section className="mt-20">
       <div className="flex flex-wrap items-center gap-4">
-        <h2 className="text-2xl font-black">Avis clients</h2>
+        <h2 className="text-2xl font-black">{t.reviews.title}</h2>
 
         {reviews.length > 0 && (
           <div className="flex items-center gap-2">
             <Stars value={Math.round(average)} />
             <span className="text-sm font-bold text-neutral-600">
-              {average.toFixed(1)}/5 · {reviews.length} avis
+              {average.toFixed(1)}/5 · {t.reviews.count(reviews.length)}
             </span>
           </div>
         )}
@@ -96,7 +99,7 @@ export default function ProductReviews({
         <div className="space-y-4">
           {reviews.length === 0 ? (
             <p className="text-neutral-500">
-              Aucun avis pour ce produit pour le moment.
+              {t.reviews.none}
             </p>
           ) : (
             reviews.map((review) => (
@@ -111,7 +114,7 @@ export default function ProductReviews({
                 )}
 
                 <p className="mt-2 text-xs text-neutral-400">
-                  {new Date(review.created_at).toLocaleDateString("fr-FR")}
+                  {formatDate(review.created_at, locale)}
                 </p>
               </div>
             ))
@@ -119,11 +122,11 @@ export default function ProductReviews({
         </div>
 
         <div className="rounded-2xl bg-white p-6 shadow-sm">
-          <h3 className="font-black">Laisser un avis</h3>
+          <h3 className="font-black">{t.reviews.leave}</h3>
 
           {submitted ? (
             <p className="mt-4 text-sm font-semibold text-emerald-600">
-              Merci, votre avis a été publié !
+              {t.reviews.thanksPublished}
             </p>
           ) : (
             <form onSubmit={submit} className="mt-4 space-y-3">
@@ -131,7 +134,7 @@ export default function ProductReviews({
                 required
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="Votre nom"
+                placeholder={t.reviews.namePlaceholder}
                 className="w-full rounded-xl border px-4 py-3 text-sm"
               />
 
@@ -141,6 +144,7 @@ export default function ProductReviews({
                     key={n}
                     type="button"
                     onClick={() => setRating(n)}
+                    aria-label={t.reviews.starLabel(n)}
                     className="text-amber-400"
                   >
                     <svg
@@ -160,7 +164,7 @@ export default function ProductReviews({
               <textarea
                 value={comment}
                 onChange={(e) => setComment(e.target.value)}
-                placeholder="Votre commentaire (optionnel)"
+                placeholder={t.reviews.commentPlaceholder}
                 className="min-h-24 w-full rounded-xl border px-4 py-3 text-sm"
               />
 
@@ -168,7 +172,7 @@ export default function ProductReviews({
                 disabled={busy}
                 className="w-full rounded-full bg-neutral-950 py-3 text-sm font-bold text-white hover:bg-orange-600 disabled:opacity-50"
               >
-                {busy ? "Envoi…" : "Publier mon avis"}
+                {busy ? t.reviews.sending : t.reviews.publish}
               </button>
             </form>
           )}

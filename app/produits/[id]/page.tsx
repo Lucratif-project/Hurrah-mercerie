@@ -7,7 +7,9 @@ import StockBadge from "@/components/StockBadge";
 import ProductGallery from "@/components/ProductGallery";
 import ProductCard from "@/components/ProductCard";
 import ProductReviews from "@/components/ProductReviews";
-import { NO_IMAGE_PLACEHOLDER } from "@/lib/placeholder";
+import { getPlaceholder } from "@/lib/placeholder";
+import { getI18n } from "@/lib/i18n/server";
+import { tr } from "@/lib/i18n/localized";
 import SiteHeader from "@/components/SiteHeader";
 import SiteFooter from "@/components/SiteFooter";
 
@@ -15,6 +17,7 @@ type Params = { params: Promise<{ id: string }> };
 
 export default async function ProductPage({ params }: Params) {
   const { id } = await params;
+  const { t, locale } = await getI18n();
 
   const { data: p } = await supabase
     .from("products")
@@ -31,10 +34,15 @@ export default async function ProductPage({ params }: Params) {
     )
     .map((img: any) => img.image_url);
 
-  const mainImage = images[0] || NO_IMAGE_PLACEHOLDER;
+  const mainImage = images[0] || getPlaceholder(locale);
   const product = { ...p, image_url: mainImage };
 
-  const variants = [p.color, p.size, p.format].filter(Boolean);
+  const name = tr(p, "name", locale);
+  const description = tr(p, "description", locale);
+  const color = tr(p, "color", locale);
+  const size = tr(p, "size", locale);
+  const format = tr(p, "format", locale);
+  const variants = [color, size, format].filter(Boolean);
 
   const { data: reviews } = await supabase
     .from("product_reviews")
@@ -69,53 +77,53 @@ export default async function ProductPage({ params }: Params) {
       <main className="min-h-screen bg-[#faf8f4] px-6 py-16">
         <div className="mx-auto max-w-6xl">
           <Link href="/catalogue" className="font-bold">
-            ← Catalogue
+            {t.product.back}
           </Link>
 
           <div className="mt-8 grid gap-12 lg:grid-cols-2">
-            <ProductGallery images={images.length ? images : [mainImage]} name={p.name} />
+            <ProductGallery images={images.length ? images : [mainImage]} name={name} />
 
             <div>
               <div className="flex items-start justify-between gap-4">
-                <h1 className="text-5xl font-black">{p.name}</h1>
+                <h1 className="text-5xl font-black">{name}</h1>
                 <StockBadge stock={p.stock} />
               </div>
 
               {p.reference && (
                 <p className="mt-2 text-sm font-semibold uppercase tracking-wide text-neutral-400">
-                  Réf. {p.reference}
+                  {t.common.reference(p.reference)}
                 </p>
               )}
 
               <p className="mt-6 leading-8 text-neutral-600">
-                {p.description}
+                {description}
               </p>
 
               {variants.length > 0 && (
                 <div className="mt-6 flex flex-wrap gap-2">
-                  {p.color && (
+                  {color && (
                     <span className="rounded-full bg-neutral-100 px-4 py-2 text-sm font-semibold">
-                      Couleur : {p.color}
+                      {t.product.color}{t.common.colon} {color}
                     </span>
                   )}
-                  {p.size && (
+                  {size && (
                     <span className="rounded-full bg-neutral-100 px-4 py-2 text-sm font-semibold">
-                      Taille : {p.size}
+                      {t.product.size}{t.common.colon} {size}
                     </span>
                   )}
-                  {p.format && (
+                  {format && (
                     <span className="rounded-full bg-neutral-100 px-4 py-2 text-sm font-semibold">
-                      Format : {p.format}
+                      {t.product.format}{t.common.colon} {format}
                     </span>
                   )}
                 </div>
               )}
 
               <p className="mt-7 text-3xl font-black text-orange-600">
-                {formatPrice(p.price)}
+                {formatPrice(p.price, locale)}
               </p>
 
-              <p className="mt-3 text-sm text-neutral-500">Stock : {p.stock}</p>
+              <p className="mt-3 text-sm text-neutral-500">{t.product.stock(p.stock)}</p>
 
               <div className="mt-8">
                 <AddToCart product={product} />
@@ -125,7 +133,7 @@ export default async function ProductPage({ params }: Params) {
 
           {similar.length > 0 && (
             <section className="mt-20">
-              <h2 className="text-2xl font-black">Produits similaires</h2>
+              <h2 className="text-2xl font-black">{t.product.similar}</h2>
 
               <div className="mt-6 grid gap-7 sm:grid-cols-2 lg:grid-cols-3">
                 {similar.map((prod) => (

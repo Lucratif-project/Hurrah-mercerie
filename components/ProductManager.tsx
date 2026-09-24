@@ -4,6 +4,7 @@ import { useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { formatPrice } from "@/lib/format";
 import { useToast } from "./Toast";
+import EnglishFields, { englishFromRow, englishValues } from "./EnglishFields";
 
 type Category = {
   id: string;
@@ -29,6 +30,11 @@ type Product = {
   color?: string | null;
   size?: string | null;
   format?: string | null;
+  name_en?: string | null;
+  description_en?: string | null;
+  color_en?: string | null;
+  size_en?: string | null;
+  format_en?: string | null;
   product_images?: ProductImage[];
 };
 
@@ -53,6 +59,15 @@ export default function ProductManager({
   const [size, setSize] = useState("");
   const [format, setFormat] = useState("");
   const [newImageUrl, setNewImageUrl] = useState("");
+  const [english, setEnglish] = useState<Record<string, string>>({});
+
+  const englishFields = [
+    { key: "name_en", label: "Nom du produit", source: name },
+    { key: "description_en", label: "Description", source: description, multiline: true },
+    { key: "color_en", label: "Couleur", source: color },
+    { key: "size_en", label: "Taille", source: size },
+    { key: "format_en", label: "Format", source: format },
+  ];
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -70,6 +85,7 @@ export default function ProductManager({
     setSize("");
     setFormat("");
     setNewImageUrl("");
+    setEnglish({});
   }
 
   function editProduct(product: Product) {
@@ -85,6 +101,7 @@ export default function ProductManager({
     setColor(product.color || "");
     setSize(product.size || "");
     setFormat(product.format || "");
+    setEnglish(englishFromRow(englishFields, product));
     setMessage("");
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -112,6 +129,7 @@ export default function ProductManager({
       color: color.trim() || null,
       size: size.trim() || null,
       format: format.trim() || null,
+      ...englishValues(englishFields, english),
       updated_at: new Date().toISOString(),
     };
 
@@ -341,6 +359,12 @@ export default function ProductManager({
 
             <span className="font-semibold">Produit mis en avant</span>
           </label>
+
+          <EnglishFields
+            fields={englishFields}
+            values={english}
+            onChange={setEnglish}
+          />
         </div>
 
         {editing && (
@@ -452,7 +476,14 @@ export default function ProductManager({
                 className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border p-4"
               >
                 <div>
-                  <p className="font-bold">{product.name}</p>
+                  <p className="font-bold">
+                    {product.name}
+                    {!product.name_en?.trim() && (
+                    <span className="ml-2 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700">
+                      EN à traduire
+                    </span>
+                  )}
+                  </p>
                   <p className="text-sm text-neutral-500">
                     {formatPrice(product.price)} · Stock {product.stock} ·{" "}
                     <span

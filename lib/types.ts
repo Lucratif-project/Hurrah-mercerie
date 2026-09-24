@@ -2,6 +2,8 @@ export type Category = {
   id: string;
   name: string;
   description: string | null;
+  name_en?: string | null;
+  description_en?: string | null;
 };
 
 export type Product = {
@@ -18,6 +20,12 @@ export type Product = {
   color?: string | null;
   size?: string | null;
   format?: string | null;
+  // Versions anglaises (facultatives, voir supabase/i18n-english.sql)
+  name_en?: string | null;
+  description_en?: string | null;
+  color_en?: string | null;
+  size_en?: string | null;
+  format_en?: string | null;
 };
 
 export type CartItem = Product & { quantity: number };

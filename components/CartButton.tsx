@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useI18n } from "@/lib/i18n/client";
 
 export default function CartButton() {
+  const { t } = useI18n();
   const [count, setCount] = useState(0);
 
   useEffect(() => {
@@ -19,5 +21,5 @@ export default function CartButton() {
     return () => window.removeEventListener("hurrah-cart-updated", update);
   }, []);
 
-  return <span>Panier{count > 0 ? ` (${count})` : ""}</span>;
+  return <span>{t.header.cart}{count > 0 ? ` (${count})` : ""}</span>;
 }
