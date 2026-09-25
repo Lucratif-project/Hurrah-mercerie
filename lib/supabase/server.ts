@@ -1,57 +1,32 @@
 import { createServerClient } from "@supabase/ssr";
-import { NextResponse, type NextRequest } from "next/server";
+import { cookies } from "next/headers";
 
-export async function proxy(request: NextRequest) {
-  let response = NextResponse.next({
-    request,
-  });
+/**
+ * Client Supabase pour les composants serveur (pages admin, etc.).
+ * Il lit la session de l'utilisateur connecté dans les cookies : les règles
+ * de sécurité (RLS) savent ainsi s'il s'agit d'un administrateur.
+ */
+export async function createClient() {
+  const cookieStore = await cookies();
 
-  const supabase = createServerClient(
+  return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
     {
       cookies: {
         getAll() {
-          return request.cookies.getAll();
+          return cookieStore.getAll();
         },
         setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value, options }) => {
-            request.cookies.set(name, value);
-            response = NextResponse.next({
-              request,
-            });
-
-            response.cookies.set(name, value, options);
-          });
+          try {
+            cookiesToSet.forEach(({ name, value, options }) =>
+              cookieStore.set(name, value, options)
+            );
+          } catch {
+            // Appelé depuis un composant serveur : le proxy rafraîchit la session.
+          }
         },
       },
     }
   );
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (request.nextUrl.pathname.startsWith("/admin")) {
-    if (!user) {
-      return NextResponse.redirect(new URL("/login", request.url));
-    }
-
-    const { data: admin } = await supabase
-      .from("admin_users")
-      .select("id")
-      .eq("id", user.id)
-      .maybeSingle();
-
-    if (!admin) {
-      await supabase.auth.signOut();
-      return NextResponse.redirect(new URL("/login", request.url));
-    }
-  }
-
-  return response;
 }
-
-export const config = {
-  matcher: ["/admin/:path*"],
-};

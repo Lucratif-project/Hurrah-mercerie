@@ -56,15 +56,15 @@ export default function Panier() {
 
     setCheckingPromo(true);
 
-    const { data } = await supabase
-      .from("promo_codes")
-      .select("code, discount_percent, active, expires_at")
-      .ilike("code", promoInput.trim())
-      .maybeSingle();
+    // Vérification côté serveur : la liste des codes n'est jamais exposée.
+    const { data: rows } = await supabase.rpc("validate_promo", {
+      p_code: promoInput.trim(),
+    });
+    const data = (rows as Promo[] | null)?.[0];
 
     setCheckingPromo(false);
 
-    if (!data || !data.active || (data.expires_at && new Date(data.expires_at) < new Date())) {
+    if (!data) {
       toast.show(t.cart.promoInvalid, "error");
       return;
     }

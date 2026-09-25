@@ -1,8 +1,9 @@
 import Link from "next/link";
-import { supabase } from "@/lib/supabase";
+import { createClient } from "@/lib/supabase/server";
 import ProductManager from "@/components/ProductManager";
 
 export default async function ProductsAdmin() {
+  const supabase = await createClient();
   const { data: products } = await supabase
     .from("products")
     .select("*, product_images(id, image_url, display_order)")

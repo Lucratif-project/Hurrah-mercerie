@@ -1,8 +1,9 @@
 import Link from "next/link";
-import { supabase } from "@/lib/supabase";
+import { createClient } from "@/lib/supabase/server";
 import BlogManager from "@/components/BlogManager";
 
 export default async function BlogAdmin() {
+  const supabase = await createClient();
   const { data } = await supabase
     .from("blog_posts")
     .select("*")

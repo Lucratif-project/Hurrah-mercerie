@@ -1,8 +1,9 @@
 import Link from "next/link";
-import { supabase } from "@/lib/supabase";
+import { createClient } from "@/lib/supabase/server";
 import AdministratorManager from "@/components/AdministratorManager";
 
 export default async function Administrators() {
+  const supabase = await createClient();
   const { data } = await supabase
     .from("admin_users")
     .select("*")

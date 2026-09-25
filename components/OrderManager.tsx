@@ -18,6 +18,7 @@ type Order = {
   customer_phone: string;
   customer_address: string | null;
   notes: string | null;
+  order_number?: number | null;
   status: string;
   total: number;
   created_at: string;
@@ -76,8 +77,9 @@ export default function OrderManager({ orders }: { orders: Order[] }) {
   }
 
   function exportCsv() {
-    const header = ["Date", "Client", "Téléphone", "Statut", "Total", "Articles"];
+    const header = ["N°", "Date", "Client", "Téléphone", "Statut", "Total", "Articles"];
     const rows = orders.map((o) => [
+      String(o.order_number ?? ""),
       new Date(o.created_at).toLocaleString("fr-FR"),
       o.customer_name,
       o.customer_phone,
@@ -119,6 +121,11 @@ export default function OrderManager({ orders }: { orders: Order[] }) {
             <div className="flex flex-wrap items-center justify-between gap-4">
               <div>
                 <div className="flex items-center gap-3">
+                  {order.order_number != null && (
+                    <span className="text-sm font-bold text-neutral-400">
+                      n° {order.order_number}
+                    </span>
+                  )}
                   <b>{order.customer_name}</b>
 
                   <span

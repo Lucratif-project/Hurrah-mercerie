@@ -1,8 +1,9 @@
 import Link from "next/link";
-import { supabase } from "@/lib/supabase";
+import { createClient } from "@/lib/supabase/server";
 import GalleryManager from "@/components/GalleryManager";
 
 export default async function GalleryAdmin() {
+  const supabase = await createClient();
   const { data } = await supabase
     .from("social_posts")
     .select("*")

@@ -1,12 +1,13 @@
 import Link from "next/link";
 import SiteHeader from "@/components/SiteHeader";
-import { supabase } from "@/lib/supabase";
+import { createClient } from "@/lib/supabase/server";
 import { formatPrice } from "@/lib/format";
 
 const MODULES = [
   ["Produits", "/admin/products"],
   ["Catégories", "/admin/categories"],
   ["Commandes", "/admin/orders"],
+  ["Avis clients", "/admin/avis"],
   ["Codes promo", "/admin/promo"],
   ["Kits couture", "/admin/kits"],
   ["Blog", "/admin/blog"],
@@ -15,15 +16,22 @@ const MODULES = [
 ];
 
 export default async function Admin() {
+  const supabase = await createClient();
   const startOfMonth = new Date();
   startOfMonth.setDate(1);
   startOfMonth.setHours(0, 0, 0, 0);
 
-  const [{ data: monthOrders }, { data: lowStock }, { data: recentOrders }] =
+  const [
+    { data: monthOrders },
+    { data: lowStock },
+    { data: recentOrders },
+    { count: pendingReviews },
+  ] =
     await Promise.all([
       supabase
         .from("orders")
         .select("total, created_at")
+        .neq("status", "cancelled")
         .gte("created_at", startOfMonth.toISOString()),
       supabase
         .from("products")
@@ -33,9 +41,13 @@ export default async function Admin() {
         .order("stock", { ascending: true }),
       supabase
         .from("orders")
-        .select("id, customer_name, total, status, created_at")
+        .select("id, order_number, customer_name, total, status, created_at")
         .order("created_at", { ascending: false })
         .limit(5),
+      supabase
+        .from("product_reviews")
+        .select("id", { count: "exact", head: true })
+        .eq("approved", false),
     ]);
 
   const monthRevenue = (monthOrders || []).reduce((s, o) => s + (o.total || 0), 0);
@@ -80,6 +92,15 @@ export default async function Admin() {
             </div>
           </div>
 
+          {(pendingReviews || 0) > 0 && (
+            <Link
+              href="/admin/avis"
+              className="mt-8 block rounded-3xl bg-orange-50 p-5 font-bold text-orange-700 hover:bg-orange-100"
+            >
+              {pendingReviews} avis client{(pendingReviews || 0) > 1 ? "s" : ""} en attente de validation →
+            </Link>
+          )}
+
           {(lowStock || []).length > 0 && (
             <div className="mt-8 rounded-3xl bg-white p-7 shadow-sm">
               <h2 className="text-xl font-black">Stock à surveiller</h2>
@@ -107,7 +128,10 @@ export default async function Admin() {
               <div className="mt-4 space-y-2">
                 {(recentOrders || []).map((o) => (
                   <div key={o.id} className="flex justify-between text-sm">
-                    <span>{o.customer_name}</span>
+                    <span>
+                      <span className="text-neutral-400">n° {o.order_number}</span>{" "}
+                      {o.customer_name}
+                    </span>
                     <span className="font-bold">{formatPrice(o.total)}</span>
                   </div>
                 ))}

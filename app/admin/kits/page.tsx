@@ -1,8 +1,9 @@
 import Link from "next/link";
-import { supabase } from "@/lib/supabase";
+import { createClient } from "@/lib/supabase/server";
 import BundleManager from "@/components/BundleManager";
 
 export default async function BundlesAdmin() {
+  const supabase = await createClient();
   const { data } = await supabase
     .from("bundles")
     .select("*, bundle_items(*)")

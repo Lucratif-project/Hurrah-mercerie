@@ -16,6 +16,14 @@ type CartItem = {
   quantity: number;
 };
 
+type PlacedOrder = {
+  order_number: number;
+  subtotal: number;
+  discount: number;
+  total: number;
+  promo_code: string | null;
+};
+
 export default function Commande() {
   const { t, locale } = useI18n();
   const wa = t.checkout.wa;
@@ -28,6 +36,8 @@ export default function Commande() {
   });
   const [msg, setMsg] = useState("");
   const [success, setSuccess] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [placed, setPlaced] = useState<PlacedOrder | null>(null);
   const [promo, setPromo] = useState<{ code: string; discount_percent: number } | null>(null);
 
   useEffect(() => {
@@ -49,17 +59,24 @@ export default function Commande() {
   const total = subtotal - discount;
 
   function whatsappMessage() {
+    // Après la commande, on reprend les montants calculés par le serveur.
+    const sub = placed?.subtotal ?? subtotal;
+    const disc = placed?.discount ?? discount;
+    const tot = placed?.total ?? total;
+    const code = placed ? placed.promo_code : promo?.code;
+
     const lines = [
       wa.intro,
+      placed ? `${wa.orderNumber} ${placed.order_number}` : "",
       "",
       ...cart.map(
         (p) =>
           `• ${p.quantity} × ${tr(p, "name", locale)} — ${formatPrice(p.price * p.quantity, locale)}`
       ),
       "",
-      `${wa.subtotal} ${formatPrice(subtotal, locale)}`,
-      promo ? `${wa.code} ${promo.code} : -${formatPrice(discount, locale)}` : "",
-      `${wa.total} ${formatPrice(total, locale)}`,
+      `${wa.subtotal} ${formatPrice(sub, locale)}`,
+      code && disc > 0 ? `${wa.code} ${code} : -${formatPrice(disc, locale)}` : "",
+      `${wa.total} ${formatPrice(tot, locale)}`,
       "",
       `${wa.name} ${form.name || "-"}`,
       `${wa.phone} ${form.phone || "-"}`,
@@ -72,65 +89,44 @@ export default function Commande() {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    setMsg(t.checkout.sending);
+    if (busy) return;
 
     if (!cart.length) {
       setMsg(t.checkout.emptyCart);
       return;
     }
 
-    const { data: order, error } = await supabase
-      .from("orders")
-      .insert({
-        customer_name: form.name,
-        customer_phone: form.phone,
-        customer_address: form.address,
-        notes: form.notes,
-        total,
-        promo_code: promo?.code || null,
-        discount,
-      })
-      .select()
-      .single();
+    setBusy(true);
+    setMsg(t.checkout.sending);
 
-    if (error || !order) {
-      setMsg(error?.message || t.checkout.saveError);
+    // Le serveur relit les prix, vérifie le stock et le code promo,
+    // puis crée la commande en une seule opération.
+    const { data, error } = await supabase.rpc("create_order", {
+      p_name: form.name,
+      p_phone: form.phone,
+      p_address: form.address,
+      p_notes: form.notes,
+      p_items: cart.map((p) => ({ product_id: p.id, quantity: p.quantity })),
+      p_promo_code: promo?.code || null,
+    });
+
+    setBusy(false);
+
+    if (error || !data) {
+      const m = error?.message || "";
+      if (m.includes("insufficient_stock:")) {
+        setMsg(t.checkout.errors.stock(m.split("insufficient_stock:")[1].trim()));
+      } else if (m.includes("product_unavailable")) {
+        setMsg(t.checkout.errors.unavailable);
+      } else if (m.includes("missing_fields")) {
+        setMsg(t.checkout.errors.fields);
+      } else {
+        setMsg(t.checkout.saveError);
+      }
       return;
     }
 
-    const { error: itemError } = await supabase.from("order_items").insert(
-      cart.map((p) => ({
-        order_id: order.id,
-        product_id: p.id,
-        product_name: p.name,
-        quantity: p.quantity,
-        price: p.price,
-      }))
-    );
-
-    if (itemError) {
-      setMsg(itemError.message);
-      return;
-    }
-
-    // Décrémente le stock de chaque produit commandé.
-    await Promise.all(
-      cart.map(async (item) => {
-        const { data: product } = await supabase
-          .from("products")
-          .select("stock")
-          .eq("id", item.id)
-          .maybeSingle();
-
-        if (product) {
-          await supabase
-            .from("products")
-            .update({ stock: Math.max(0, product.stock - item.quantity) })
-            .eq("id", item.id);
-        }
-      })
-    );
-
+    setPlaced(data as PlacedOrder);
     localStorage.removeItem("hurrah-cart");
     localStorage.removeItem("hurrah-promo");
     window.dispatchEvent(new Event("hurrah-cart-updated"));
@@ -201,7 +197,10 @@ export default function Commande() {
               onChange={(e) => setForm({ ...form, notes: e.target.value })}
             />
 
-            <button className="w-full rounded-full bg-neutral-950 py-4 font-bold text-white hover:bg-orange-600">
+            <button
+              disabled={busy}
+              className="w-full rounded-full bg-neutral-950 py-4 font-bold text-white hover:bg-orange-600 disabled:opacity-50"
+            >
               {t.checkout.confirm}
             </button>
 
@@ -226,6 +225,18 @@ export default function Commande() {
             <p className="text-xl font-black text-emerald-600">
               {t.checkout.successTitle}
             </p>
+
+            {placed && (
+              <div className="rounded-2xl bg-orange-50 p-5">
+                <p className="text-2xl font-black text-orange-700">
+                  {t.checkout.orderNumber(String(placed.order_number))}
+                </p>
+                <p className="mt-1 text-sm text-neutral-600">{t.checkout.keepNumber}</p>
+                <p className="mt-3 font-bold">
+                  {t.checkout.total(formatPrice(placed.total, locale))}
+                </p>
+              </div>
+            )}
 
             <p className="text-neutral-600">
               {t.checkout.successText(form.phone)}

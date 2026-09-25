@@ -224,7 +224,7 @@ export const fonOverrides: DeepPartial<Dictionary> = {
     count: (n: number) => `linlin ${n}`,
     none: "Mɛ ɖé ma ko ɖɔ linlin tɔn dó nǔ elɔ wu ǎ.",
     leave: "Ɖɔ linlin towe",
-    thanksPublished: "A wà nǔ ! Linlin towe ko ɖò wema jí.",
+    thanksPublished: "A wà nǔ ! Mǐ na xà linlin towe cóbó sɔ́ ɖó wema jí.",
     thanksToast: "A wà nǔ ɖò linlin towe wu !",
     namePlaceholder: "Nyǐkɔ́ towe",
     commentPlaceholder: "Xó towe (é ma jɛ dandan ǎ)",
@@ -287,11 +287,11 @@ export const fonOverrides: DeepPartial<Dictionary> = {
 
   tracking: {
     title: "Kpɔ́n nǔ e un byɔ́ lɛ",
-    intro: "Wlan alokan e a zán hwenu a byɔ́ nǔ é.",
+    intro: "Wlan numéro nǔ byɔ́byɔ́ towe tɔn kpo alokan e a zán é kpo.",
     placeholder: "Alokan towe",
     searching: "Mǐ ɖò bà wɛ…",
     search: "Bà",
-    none: "Mǐ ma mɔ nǔ byɔ́byɔ́ ɖé nú alokan elɔ ǎ.",
+    none: "Mǐ ma mɔ nǔ byɔ́byɔ́ ɖé nú numéro elɔ kpo alokan elɔ kpo ǎ.",
     status: {
       new: "Yɔ̌yɔ́",
       confirmed: "Mǐ ɖɔ ɛɛn",

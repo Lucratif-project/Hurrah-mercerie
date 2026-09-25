@@ -209,7 +209,7 @@ const fr = {
     count: (n: number) => `${n} avis`,
     none: "Aucun avis pour ce produit pour le moment.",
     leave: "Laisser un avis",
-    thanksPublished: "Merci, votre avis a été publié !",
+    thanksPublished: "Merci ! Votre avis sera publié après validation.",
     thanksToast: "Merci pour votre avis !",
     namePlaceholder: "Votre nom",
     commentPlaceholder: "Votre commentaire (optionnel)",
@@ -258,7 +258,18 @@ const fr = {
     successText: (phone: string) =>
       `Hurrah Mercerie va vous contacter au ${phone} pour confirmer votre commande.`,
     whatsappConfirm: "Confirmer aussi par WhatsApp",
+    orderNumber: (n: string) => `Commande n° ${n}`,
+    keepNumber:
+      "Notez ce numéro : il vous servira à suivre votre commande.",
+    errors: {
+      stock: (name: string) =>
+        `Stock insuffisant pour « ${name} ». Réduisez la quantité dans votre panier.`,
+      unavailable:
+        "Un produit de votre panier n'est plus disponible. Retirez-le du panier.",
+      fields: "Merci d'indiquer votre nom et votre téléphone.",
+    },
     wa: {
+      orderNumber: "Commande n°",
       intro: "Bonjour Hurrah Mercerie, je souhaite passer une commande :",
       subtotal: "Sous-total :",
       code: "Code",
@@ -277,11 +288,14 @@ const fr = {
 
   tracking: {
     title: "Suivre ma commande",
-    intro: "Entrez le numéro de téléphone utilisé lors de votre commande.",
+    intro:
+      "Entrez votre numéro de commande et le téléphone utilisé lors de la commande.",
     placeholder: "Votre numéro de téléphone",
+    orderPlaceholder: "N° de commande (ex : 42)",
+    orderLabel: (n: string) => `Commande n° ${n}`,
     searching: "Recherche…",
     search: "Chercher",
-    none: "Aucune commande trouvée pour ce numéro.",
+    none: "Aucune commande ne correspond à ce numéro et à ce téléphone.",
     status: {
       new: "Nouvelle",
       confirmed: "Confirmée",
@@ -550,7 +564,7 @@ const en: Dictionary = {
     count: (n: number) => `${n} ${n === 1 ? "review" : "reviews"}`,
     none: "No reviews for this product yet.",
     leave: "Leave a review",
-    thanksPublished: "Thank you, your review has been published!",
+    thanksPublished: "Thank you! Your review will be published once approved.",
     thanksToast: "Thank you for your review!",
     namePlaceholder: "Your name",
     commentPlaceholder: "Your comment (optional)",
@@ -599,7 +613,17 @@ const en: Dictionary = {
     successText: (phone: string) =>
       `Hurrah Mercerie will contact you on ${phone} to confirm your order.`,
     whatsappConfirm: "Also confirm via WhatsApp",
+    orderNumber: (n: string) => `Order no. ${n}`,
+    keepNumber: "Keep this number: you will need it to track your order.",
+    errors: {
+      stock: (name: string) =>
+        `Not enough stock for "${name}". Please reduce the quantity in your cart.`,
+      unavailable:
+        "A product in your cart is no longer available. Please remove it from your cart.",
+      fields: "Please enter your name and phone number.",
+    },
     wa: {
+      orderNumber: "Order no.",
       intro: "Hello Hurrah Mercerie, I would like to place an order:",
       subtotal: "Subtotal:",
       code: "Code",
@@ -618,11 +642,13 @@ const en: Dictionary = {
 
   tracking: {
     title: "Track my order",
-    intro: "Enter the phone number you used when placing your order.",
+    intro: "Enter your order number and the phone number used for the order.",
     placeholder: "Your phone number",
+    orderPlaceholder: "Order no. (e.g. 42)",
+    orderLabel: (n: string) => `Order no. ${n}`,
     searching: "Searching…",
     search: "Search",
-    none: "No orders found for this number.",
+    none: "No order matches this order number and phone number.",
     status: {
       new: "New",
       confirmed: "Confirmed",

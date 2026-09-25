@@ -9,32 +9,37 @@ import { useI18n } from "@/lib/i18n/client";
 import { formatDate } from "@/lib/i18n/config";
 
 type Order = {
-  id: string;
+  order_number: number;
   status: string;
   total: number;
   created_at: string;
-  order_items?: { id: string; product_name: string; quantity: number; price: number }[];
+  items: { product_name: string; quantity: number; price: number }[];
 };
 
 export default function SuiviCommande() {
   const { t, locale } = useI18n();
   const [phone, setPhone] = useState("");
+  const [orderNumber, setOrderNumber] = useState("");
   const [orders, setOrders] = useState<Order[] | null>(null);
   const [loading, setLoading] = useState(false);
 
   async function search(e: React.FormEvent) {
     e.preventDefault();
-    if (!phone.trim()) return;
+    const number = Number(orderNumber.replace(/\D/g, ""));
+    if (!phone.trim() || !number) {
+      setOrders([]);
+      return;
+    }
 
     setLoading(true);
 
-    const { data } = await supabase
-      .from("orders")
-      .select("id, status, total, created_at, order_items(id, product_name, quantity, price)")
-      .eq("customer_phone", phone.trim())
-      .order("created_at", { ascending: false });
+    // Une commande n'est renvoyée que si le numéro ET le téléphone correspondent.
+    const { data } = await supabase.rpc("track_order", {
+      p_phone: phone.trim(),
+      p_order_number: number,
+    });
 
-    setOrders(data || []);
+    setOrders(data ? [data as Order] : []);
     setLoading(false);
   }
 
@@ -54,7 +59,16 @@ export default function SuiviCommande() {
             {t.tracking.intro}
           </p>
 
-          <form onSubmit={search} className="mt-8 flex gap-3">
+          <form onSubmit={search} className="mt-8 flex flex-col gap-3 sm:flex-row">
+            <input
+              required
+              inputMode="numeric"
+              value={orderNumber}
+              onChange={(e) => setOrderNumber(e.target.value)}
+              placeholder={t.tracking.orderPlaceholder}
+              className="rounded-2xl border px-5 py-4 sm:w-48"
+            />
+
             <input
               required
               value={phone}
@@ -79,7 +93,8 @@ export default function SuiviCommande() {
             )}
 
             {(orders || []).map((order) => (
-              <div key={order.id} className="rounded-3xl bg-white p-6 shadow-sm">
+              <div key={order.order_number} className="rounded-3xl bg-white p-6 shadow-sm">
+                <p className="mb-3 font-black">{t.tracking.orderLabel(String(order.order_number))}</p>
                 <div className="flex items-center justify-between">
                   <span className="rounded-full bg-orange-50 px-3 py-1 text-xs font-bold text-orange-700">
                     {t.tracking.status[order.status] || order.status}
@@ -91,8 +106,8 @@ export default function SuiviCommande() {
                 </div>
 
                 <div className="mt-4 space-y-1 text-sm text-neutral-600">
-                  {(order.order_items || []).map((item) => (
-                    <div key={item.id} className="flex justify-between">
+                  {order.items.map((item, index) => (
+                    <div key={index} className="flex justify-between">
                       <span>{item.quantity} × {item.product_name}</span>
                       <span>{formatPrice(item.price * item.quantity, locale)}</span>
                     </div>

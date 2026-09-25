@@ -1,8 +1,9 @@
 import Link from "next/link";
-import { supabase } from "@/lib/supabase";
+import { createClient } from "@/lib/supabase/server";
 import OrderManager from "@/components/OrderManager";
 
 export default async function Orders() {
+  const supabase = await createClient();
   const { data: orders } = await supabase
     .from("orders")
     .select("*, order_items(id, product_name, quantity, price)")

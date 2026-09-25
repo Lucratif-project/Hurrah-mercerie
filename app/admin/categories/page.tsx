@@ -1,8 +1,9 @@
 import Link from "next/link";
-import { supabase } from "@/lib/supabase";
+import { createClient } from "@/lib/supabase/server";
 import CategoryManager from "@/components/CategoryManager";
 
 export default async function CategoriesAdmin() {
+  const supabase = await createClient();
   const { data } = await supabase
     .from("categories")
     .select("*")

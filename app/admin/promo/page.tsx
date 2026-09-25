@@ -1,8 +1,9 @@
 import Link from "next/link";
-import { supabase } from "@/lib/supabase";
+import { createClient } from "@/lib/supabase/server";
 import PromoManager from "@/components/PromoManager";
 
 export default async function PromoAdmin() {
+  const supabase = await createClient();
   const { data } = await supabase
     .from("promo_codes")
     .select("*")
