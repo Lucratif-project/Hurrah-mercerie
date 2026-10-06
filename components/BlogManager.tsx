@@ -146,7 +146,7 @@ export default function BlogManager({ posts }: { posts: Post[] }) {
             required
             value={content}
             onChange={(e) => setContent(e.target.value)}
-            placeholder="Contenu complet de l'article"
+            placeholder={"Contenu complet de l'article\n\n## Sous-titre\n- élément de liste"}
             className="min-h-56 w-full rounded-2xl border px-5 py-4"
           />
 

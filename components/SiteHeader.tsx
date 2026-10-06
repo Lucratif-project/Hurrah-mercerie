@@ -26,7 +26,6 @@ export default function SiteHeader() {
           <nav className="hidden items-center gap-5 whitespace-nowrap text-sm font-semibold md:flex xl:gap-7">
             <Link href="/">{t.header.nav.home}</Link>
             <Link href="/catalogue">{t.header.nav.catalogue}</Link>
-            <Link href="/kits">{t.header.nav.kits}</Link>
             <Link href="/machines">{t.header.nav.machines}</Link>
             <Link href="/blog">{t.header.nav.blog}</Link>
             <Link href="/a-propos">{t.header.nav.about}</Link>

@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import SiteHeader from "@/components/SiteHeader";
 import SiteFooter from "@/components/SiteFooter";
+import ArticleBody from "@/components/ArticleBody";
 import { supabase } from "@/lib/supabase";
 import { getI18n } from "@/lib/i18n/server";
 import { tr } from "@/lib/i18n/localized";
@@ -61,8 +62,8 @@ export default async function BlogPost({ params }: Params) {
             />
           )}
 
-          <div className="mt-8 whitespace-pre-line text-lg leading-8 text-neutral-700">
-            {tr(post, "content", locale)}
+          <div className="mt-8">
+            <ArticleBody text={tr(post, "content", locale)} />
           </div>
         </article>
       </main>

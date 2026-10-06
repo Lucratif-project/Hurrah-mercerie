@@ -58,16 +58,16 @@ export default function Commande() {
   const discount = promo ? Math.round((subtotal * promo.discount_percent) / 100) : 0;
   const total = subtotal - discount;
 
-  function whatsappMessage() {
+  function whatsappMessage(order: PlacedOrder | null = placed) {
     // Après la commande, on reprend les montants calculés par le serveur.
-    const sub = placed?.subtotal ?? subtotal;
-    const disc = placed?.discount ?? discount;
-    const tot = placed?.total ?? total;
-    const code = placed ? placed.promo_code : promo?.code;
+    const sub = order?.subtotal ?? subtotal;
+    const disc = order?.discount ?? discount;
+    const tot = order?.total ?? total;
+    const code = order ? order.promo_code : promo?.code;
 
     const lines = [
       wa.intro,
-      placed ? `${wa.orderNumber} ${placed.order_number}` : "",
+      order ? `${wa.orderNumber} ${order.order_number}` : "",
       "",
       ...cart.map(
         (p) =>
@@ -87,13 +87,33 @@ export default function Commande() {
     return lines.join("\n");
   }
 
-  async function submit(e: React.FormEvent) {
+  function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (busy) return;
+    placeOrder();
+  }
+
+  // « Commander par WhatsApp » enregistre AUSSI la commande (et retire le
+  // stock) avant d'ouvrir WhatsApp avec le numéro de commande.
+  function orderViaWhatsApp(e: React.MouseEvent<HTMLButtonElement>) {
+    const formEl = e.currentTarget.form;
+    if (formEl && !formEl.reportValidity()) return;
+
+    // Fenêtre ouverte tout de suite (sinon le navigateur la bloque),
+    // puis dirigée vers WhatsApp une fois la commande enregistrée.
+    const win = window.open("", "_blank");
+    placeOrder().then((order) => {
+      if (!win) return;
+      if (order) win.location.href = buildWhatsAppLink(whatsappMessage(order));
+      else win.close();
+    });
+  }
+
+  async function placeOrder(): Promise<PlacedOrder | null> {
+    if (busy) return null;
 
     if (!cart.length) {
       setMsg(t.checkout.emptyCart);
-      return;
+      return null;
     }
 
     setBusy(true);
@@ -123,15 +143,17 @@ export default function Commande() {
       } else {
         setMsg(t.checkout.saveError);
       }
-      return;
+      return null;
     }
 
-    setPlaced(data as PlacedOrder);
+    const order = data as PlacedOrder;
+    setPlaced(order);
     localStorage.removeItem("hurrah-cart");
     localStorage.removeItem("hurrah-promo");
     window.dispatchEvent(new Event("hurrah-cart-updated"));
     setMsg(t.checkout.success);
     setSuccess(true);
+    return order;
   }
 
   return (
@@ -204,13 +226,14 @@ export default function Commande() {
               {t.checkout.confirm}
             </button>
 
-            <a
-              href={buildWhatsAppLink(whatsappMessage())}
-              target="_blank"
-              className="block w-full rounded-full border-2 border-neutral-950 py-4 text-center font-bold text-neutral-950 hover:bg-neutral-950 hover:text-white"
+            <button
+              type="button"
+              onClick={orderViaWhatsApp}
+              disabled={busy}
+              className="block w-full rounded-full border-2 border-neutral-950 py-4 text-center font-bold text-neutral-950 hover:bg-neutral-950 hover:text-white disabled:opacity-50"
             >
               {t.checkout.whatsappDirect}
-            </a>
+            </button>
 
             {msg && (
               <p className="rounded-2xl bg-orange-50 p-4 font-semibold">

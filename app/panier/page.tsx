@@ -16,11 +16,15 @@ type CartItem = {
   quantity: number;
 };
 
-type Promo = { code: string; discount_percent: number };
+type Promo = {
+  code: string;
+  discount_percent: number;
+};
 
 export default function Panier() {
   const { t, locale } = useI18n();
   const toast = useToast();
+
   const [cart, setCart] = useState<CartItem[]>([]);
   const [promo, setPromo] = useState<Promo | null>(null);
   const [promoInput, setPromoInput] = useState("");
@@ -32,9 +36,13 @@ export default function Panier() {
     } catch {
       setCart([]);
     }
+
     try {
       const saved = localStorage.getItem("hurrah-promo");
-      if (saved) setPromo(JSON.parse(saved));
+
+      if (saved) {
+        setPromo(JSON.parse(saved));
+      }
     } catch {
       setPromo(null);
     }
@@ -42,24 +50,152 @@ export default function Panier() {
 
   function save(next: CartItem[]) {
     setCart(next);
+
     localStorage.setItem("hurrah-cart", JSON.stringify(next));
+
     window.dispatchEvent(new Event("hurrah-cart-updated"));
   }
 
-  const subtotal = cart.reduce((s, p) => s + p.price * p.quantity, 0);
-  const discount = promo ? Math.round((subtotal * promo.discount_percent) / 100) : 0;
+  const subtotal = cart.reduce(
+    (s, p) => s + p.price * p.quantity,
+    0
+  );
+
+  const discount = promo
+    ? Math.round((subtotal * promo.discount_percent) / 100)
+    : 0;
+
   const total = subtotal - discount;
+
+  /*
+   * Diminue le stock d'un produit.
+   * Utilisé lorsqu'on augmente la quantité dans le panier.
+   */
+  async function decreaseStock(productId: string, quantity = 1) {
+    const { data, error } = await supabase.rpc(
+      "decrease_product_stock",
+      {
+        p_product_id: productId,
+        p_quantity: quantity,
+      }
+    );
+
+    if (error || data === null || data === undefined) {
+      toast.show("Stock insuffisant.", "error");
+      return false;
+    }
+
+    return true;
+  }
+
+  /*
+   * Rend le stock lorsqu'un article quitte le panier.
+   */
+  async function increaseStock(productId: string, quantity = 1) {
+    const { data, error } = await supabase.rpc(
+      "increase_product_stock",
+      {
+        p_product_id: productId,
+        p_quantity: quantity,
+      }
+    );
+
+    if (error || data === null || data === undefined) {
+      toast.show(
+        "Impossible de remettre le stock à jour.",
+        "error"
+      );
+      return false;
+    }
+
+    return true;
+  }
+
+  /*
+   * Diminue la quantité d'un article.
+   *
+   * Exemple :
+   * panier = 3
+   * bouton - 
+   * panier = 2
+   * stock +1
+   */
+  async function decreaseQuantity(product: CartItem) {
+    if (product.quantity <= 1) return;
+
+    const success = await increaseStock(product.id, 1);
+
+    if (!success) return;
+
+    save(
+      cart.map((x) =>
+        x.id === product.id
+          ? {
+              ...x,
+              quantity: x.quantity - 1,
+            }
+          : x
+      )
+    );
+  }
+
+  /*
+   * Augmente la quantité d'un article.
+   *
+   * Exemple :
+   * panier = 2
+   * bouton +
+   * stock -1
+   * panier = 3
+   */
+  async function increaseQuantity(product: CartItem) {
+    const success = await decreaseStock(product.id, 1);
+
+    if (!success) return;
+
+    save(
+      cart.map((x) =>
+        x.id === product.id
+          ? {
+              ...x,
+              quantity: x.quantity + 1,
+            }
+          : x
+      )
+    );
+  }
+
+  /*
+   * Supprime complètement l'article du panier.
+   *
+   * Exemple :
+   * panier = 3
+   * supprimer
+   * stock +3
+   * article retiré du panier
+   */
+  async function removeProduct(product: CartItem) {
+    const success = await increaseStock(
+      product.id,
+      product.quantity
+    );
+
+    if (!success) return;
+
+    save(cart.filter((x) => x.id !== product.id));
+  }
 
   async function applyPromo(e: React.FormEvent) {
     e.preventDefault();
+
     if (!promoInput.trim()) return;
 
     setCheckingPromo(true);
 
-    // Vérification côté serveur : la liste des codes n'est jamais exposée.
     const { data: rows } = await supabase.rpc("validate_promo", {
       p_code: promoInput.trim(),
     });
+
     const data = (rows as Promo[] | null)?.[0];
 
     setCheckingPromo(false);
@@ -69,11 +205,26 @@ export default function Panier() {
       return;
     }
 
-    const applied = { code: data.code, discount_percent: data.discount_percent };
+    const applied = {
+      code: data.code,
+      discount_percent: data.discount_percent,
+    };
+
     setPromo(applied);
-    localStorage.setItem("hurrah-promo", JSON.stringify(applied));
+
+    localStorage.setItem(
+      "hurrah-promo",
+      JSON.stringify(applied)
+    );
+
     setPromoInput("");
-    toast.show(t.cart.promoApplied(data.code, data.discount_percent));
+
+    toast.show(
+      t.cart.promoApplied(
+        data.code,
+        data.discount_percent
+      )
+    );
   }
 
   function removePromo() {
@@ -84,72 +235,82 @@ export default function Panier() {
   return (
     <main className="min-h-screen bg-[#faf8f4] px-6 py-16">
       <div className="mx-auto max-w-5xl">
+
         <Link href="/" className="font-bold">
           ← {t.common.home}
         </Link>
 
-        <h1 className="mt-8 text-5xl font-black">{t.cart.title}</h1>
+        <h1 className="mt-8 text-5xl font-black">
+          {t.cart.title}
+        </h1>
 
         {cart.length === 0 ? (
           <div className="mt-10 rounded-3xl bg-white p-10">
             {t.cart.empty}
+
             <br />
-            <Link href="/catalogue" className="mt-5 inline-block font-bold text-orange-600">
+
+            <Link
+              href="/catalogue"
+              className="mt-5 inline-block font-bold text-orange-600"
+            >
               {t.common.viewCatalogueArrow}
             </Link>
           </div>
         ) : (
           <>
             <div className="mt-10 space-y-4">
+
               {cart.map((p) => (
                 <div
                   key={p.id}
                   className="flex items-center justify-between gap-4 rounded-3xl bg-white p-5"
                 >
+
                   <div>
-                    <h2 className="font-black">{tr(p, "name", locale)}</h2>
-                    <p className="text-orange-600">{formatPrice(p.price, locale)}</p>
+                    <h2 className="font-black">
+                      {tr(p, "name", locale)}
+                    </h2>
+
+                    <p className="text-orange-600">
+                      {formatPrice(p.price, locale)}
+                    </p>
                   </div>
 
                   <div className="flex items-center gap-3">
+
                     <button
-                      onClick={() =>
-                        save(
-                          cart.map((x) =>
-                            x.id === p.id
-                              ? { ...x, quantity: Math.max(1, x.quantity - 1) }
-                              : x
-                          )
-                        )
-                      }
-                      className="rounded-full border px-3"
+                      onClick={() => decreaseQuantity(p)}
+                      disabled={p.quantity <= 1}
+                      className="rounded-full border px-3 disabled:cursor-not-allowed disabled:opacity-40"
                       aria-label={t.cart.decrease}
                     >
                       −
                     </button>
-                    <span>{p.quantity}</span>
+
+                    <span className="min-w-6 text-center">
+                      {p.quantity}
+                    </span>
+
                     <button
-                      onClick={() =>
-                        save(
-                          cart.map((x) =>
-                            x.id === p.id ? { ...x, quantity: x.quantity + 1 } : x
-                          )
-                        )
-                      }
+                      onClick={() => increaseQuantity(p)}
                       className="rounded-full border px-3"
                       aria-label={t.cart.increase}
                     >
                       +
                     </button>
+
                     <button
-                      onClick={() => save(cart.filter((x) => x.id !== p.id))}
+                      onClick={() => removeProduct(p)}
                       className="ml-3 text-sm text-red-600"
                     >
                       {t.cart.remove}
                     </button>
+
                   </div>
                 </div>
               ))}
+
             </div>
 
             <form
@@ -158,21 +319,36 @@ export default function Panier() {
             >
               <input
                 value={promoInput}
-                onChange={(e) => setPromoInput(e.target.value)}
+                onChange={(e) =>
+                  setPromoInput(e.target.value)
+                }
                 placeholder={t.cart.promoPlaceholder}
                 className="flex-1 rounded-2xl border px-4 py-3 text-sm"
               />
+
               <button
                 disabled={checkingPromo}
                 className="rounded-2xl bg-neutral-950 px-5 py-3 text-sm font-bold text-white hover:bg-orange-600 disabled:opacity-50"
               >
-                {checkingPromo ? t.cart.checking : t.cart.apply}
+                {checkingPromo
+                  ? t.cart.checking
+                  : t.cart.apply}
               </button>
 
               {promo && (
                 <div className="flex w-full items-center justify-between rounded-2xl bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700">
-                  <span>{t.cart.promoLine(promo.code, promo.discount_percent)}</span>
-                  <button type="button" onClick={removePromo} className="text-red-600">
+                  <span>
+                    {t.cart.promoLine(
+                      promo.code,
+                      promo.discount_percent
+                    )}
+                  </span>
+
+                  <button
+                    type="button"
+                    onClick={removePromo}
+                    className="text-red-600"
+                  >
                     {t.cart.withdraw}
                   </button>
                 </div>
@@ -180,21 +356,34 @@ export default function Panier() {
             </form>
 
             <div className="mt-8 rounded-3xl bg-neutral-950 p-7 text-white">
+
               <div className="flex justify-between text-sm text-white/60">
                 <span>{t.common.subtotal}</span>
-                <span>{formatPrice(subtotal, locale)}</span>
+                <span>
+                  {formatPrice(subtotal, locale)}
+                </span>
               </div>
 
               {promo && (
                 <div className="mt-1 flex justify-between text-sm text-emerald-400">
-                  <span>{t.cart.discount(promo.discount_percent)}</span>
-                  <span>-{formatPrice(discount, locale)}</span>
+                  <span>
+                    {t.cart.discount(
+                      promo.discount_percent
+                    )}
+                  </span>
+
+                  <span>
+                    -{formatPrice(discount, locale)}
+                  </span>
                 </div>
               )}
 
               <div className="mt-3 flex justify-between border-t border-white/10 pt-3 text-xl font-black">
                 <span>{t.common.total}</span>
-                <span>{formatPrice(total, locale)}</span>
+
+                <span>
+                  {formatPrice(total, locale)}
+                </span>
               </div>
 
               <Link
@@ -203,6 +392,7 @@ export default function Panier() {
               >
                 {t.cart.checkout}
               </Link>
+
             </div>
           </>
         )}
