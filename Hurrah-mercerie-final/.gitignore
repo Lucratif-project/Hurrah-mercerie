@@ -1,0 +1,16 @@
+node_modules
+.next/
+.env
+.env.local
+*.log
+.DS_Store
+*.patch
+
+# Fichiers de sauvegarde et patchs
+*~
+*.before-repair
+*.patch
+.env*
+!.env.example
+.vercel
+tsconfig.tsbuildinfo
