@@ -4,6 +4,7 @@ import { useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { formatPrice } from "@/lib/format";
 import { useToast } from "./Toast";
+import ImageUploadButton from "./ImageUploadButton";
 import EnglishFields, { englishFromRow, englishValues } from "./EnglishFields";
 
 type Category = {
@@ -102,6 +103,7 @@ export default function ProductManager({
     setSize(product.size || "");
     setFormat(product.format || "");
     setEnglish(englishFromRow(englishFields, product));
+    setAddedCount(0);
     setMessage("");
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -192,22 +194,31 @@ export default function ProductManager({
     window.location.reload();
   }
 
-  async function addImage() {
-    if (!editing || !newImageUrl.trim()) return;
+  // Nombre de photos déjà ajoutées pendant cette modification (pour l'ordre).
+  const [addedCount, setAddedCount] = useState(0);
 
-    const nextOrder = (editing.product_images?.length || 0);
+  async function insertImage(url: string) {
+    if (!editing) return;
+    const nextOrder = (editing.product_images?.length || 0) + addedCount;
 
     const { error } = await supabase.from("product_images").insert({
       product_id: editing.id,
-      image_url: newImageUrl.trim(),
+      image_url: url,
       display_order: nextOrder,
     });
 
-    if (error) {
-      toast.show(error.message, "error");
+    if (error) throw new Error(error.message);
+    setAddedCount((n) => n + 1);
+  }
+
+  async function addImage() {
+    if (!editing || !newImageUrl.trim()) return;
+    try {
+      await insertImage(newImageUrl.trim());
+    } catch (e) {
+      toast.show(e instanceof Error ? e.message : "Erreur.", "error");
       return;
     }
-
     setNewImageUrl("");
     window.location.reload();
   }
@@ -417,11 +428,33 @@ export default function ProductManager({
                 ))}
             </div>
 
+            <div className="mt-3">
+              <ImageUploadButton
+                folder={`produits/${editing.reference || editing.id}`}
+                multiple
+                label="📷 Ajouter des photos (téléphone ou ordinateur)"
+                className="w-full py-3"
+                onUploaded={insertImage}
+              />
+              {addedCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => window.location.reload()}
+                  className="mt-2 w-full rounded-xl border px-4 py-2 text-xs font-bold"
+                >
+                  Terminé : afficher les {addedCount} nouvelle{addedCount > 1 ? "s" : ""} photo{addedCount > 1 ? "s" : ""}
+                </button>
+              )}
+              <p className="mt-2 text-[11px] text-neutral-500">
+                Astuce : fond clair, lumière du jour, produit centré. Les photos sont réduites automatiquement.
+              </p>
+            </div>
+
             <div className="mt-3 flex gap-2">
               <input
                 value={newImageUrl}
                 onChange={(e) => setNewImageUrl(e.target.value)}
-                placeholder="URL de la photo (ex : /images/produits/...)"
+                placeholder="…ou coller l'adresse d'une image"
                 className="flex-1 rounded-xl border px-3 py-2 text-sm"
               />
 

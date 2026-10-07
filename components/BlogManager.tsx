@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useToast } from "./Toast";
+import ImageUploadButton from "./ImageUploadButton";
 import EnglishFields, { englishFromRow, englishValues } from "./EnglishFields";
 
 type Post = {
@@ -128,12 +129,20 @@ export default function BlogManager({ posts }: { posts: Post[] }) {
             className="w-full rounded-2xl border px-5 py-4"
           />
 
-          <input
-            value={coverImage}
-            onChange={(e) => setCoverImage(e.target.value)}
-            placeholder="URL image de couverture"
-            className="w-full rounded-2xl border px-5 py-4"
-          />
+          <div className="space-y-2">
+            <div className="flex items-center gap-3">
+              <ImageUploadButton folder="blog" onUploaded={(url) => setCoverImage(url)} />
+              {coverImage && (
+                <img src={coverImage} alt="" className="h-12 w-12 rounded-lg object-cover" />
+              )}
+            </div>
+            <input
+              value={coverImage}
+              onChange={(e) => setCoverImage(e.target.value)}
+              placeholder="…ou coller l'adresse d'une image"
+              className="w-full rounded-2xl border px-5 py-4"
+            />
+          </div>
 
           <textarea
             value={excerpt}

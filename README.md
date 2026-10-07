@@ -1,36 +1,50 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Hurrah Mercerie
 
-## Getting Started
+Boutique en ligne de mercerie et de machines à coudre (Cotonou, Bénin).
+Next.js 16 · Supabase · Tailwind CSS · déploiement Vercel.
 
-First, run the development server:
+## Fonctionnalités
+
+**Boutique**
+- Catalogue avec recherche, filtres par catégorie et disponibilité, aperçu rapide
+- Fiches produits : galerie, variantes, stock, produits similaires, avis clients (validés par l'admin)
+- Illustrations automatiques par type et couleur de produit tant qu'il n'y a pas de photo
+- Panier, codes promo, favoris
+- Commande sécurisée côté serveur (prix relus en base, stock réservé à la validation, anti-spam)
+- Paiement : MTN MoMo, Moov Money, Celtiis Cash ou espèces ; instructions de paiement avec numéro de commande
+- Commande et contact par WhatsApp, bouton WhatsApp flottant
+- Suivi de commande (numéro + téléphone)
+- Site en français, anglais et fon
+- Menu mobile, pages légales, page 404, sitemap, robots.txt, données structurées Google
+
+**Administration** (`/admin`)
+- Produits, catégories, kits, blog, galerie : envoi de photos depuis le téléphone (Supabase Storage)
+- Traduction automatique FR → EN (DeepL)
+- Commandes : statut, moyen de paiement, « payé / non payé », export CSV ; annulation = stock remis
+- Avis clients à valider, codes promo, administrateurs
+- Sécurité (administrateur principal) : journal des connexions, blocage automatique des attaques
+
+## Démarrer en local
 
 ```bash
+cp .env.example .env.local   # puis remplir les valeurs
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Base de données (Supabase > SQL Editor, dans cet ordre)
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+| Script | Rôle |
+|---|---|
+| `supabase/schema.sql` | Tables |
+| `supabase/seed-catalogue.sql` | Catalogue de démarrage (53 produits) |
+| `supabase/update-images.sql` | 4 photos produits existantes |
+| `supabase/i18n-english.sql` | Colonnes et textes anglais |
+| `supabase/securite.sql` | Règles de sécurité, commandes, paiement |
+| `supabase/journal-connexions.sql` | Administrateur principal, journal des connexions |
+| `supabase/photos.sql` | Stockage des photos |
+| `supabase/conseils.sql` | Articles de conseils |
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Tous les scripts sont relançables.
 
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Mise en ligne pas à pas : voir **DEPLOIEMENT.md**.

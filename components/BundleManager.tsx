@@ -4,6 +4,7 @@ import { useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { formatPrice } from "@/lib/format";
 import { useToast } from "./Toast";
+import ImageUploadButton from "./ImageUploadButton";
 import EnglishFields, { englishFromRow } from "./EnglishFields";
 
 type BundleItem = { id: string; label: string; label_en?: string | null };
@@ -162,12 +163,20 @@ export default function BundleManager({ bundles }: { bundles: Bundle[] }) {
             className="w-full rounded-2xl border px-5 py-4"
           />
 
-          <input
-            value={imageUrl}
-            onChange={(e) => setImageUrl(e.target.value)}
-            placeholder="URL image"
-            className="w-full rounded-2xl border px-5 py-4"
-          />
+          <div className="space-y-2">
+            <div className="flex items-center gap-3">
+              <ImageUploadButton folder="kits" onUploaded={(url) => setImageUrl(url)} />
+              {imageUrl && (
+                <img src={imageUrl} alt="" className="h-12 w-12 rounded-lg object-cover" />
+              )}
+            </div>
+            <input
+              value={imageUrl}
+              onChange={(e) => setImageUrl(e.target.value)}
+              placeholder="…ou coller l'adresse d'une image"
+              className="w-full rounded-2xl border px-5 py-4"
+            />
+          </div>
 
           <textarea
             value={itemsText}

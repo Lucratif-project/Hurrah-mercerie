@@ -1,11 +1,13 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { ToastProvider } from "@/components/Toast";
+import WhatsAppFloat from "@/components/WhatsAppFloat";
 import { LocaleProvider } from "@/lib/i18n/client";
 import { getI18n, getLocale } from "@/lib/i18n/server";
 
-const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://hurrahmercerie.com";
-const OG_IMAGE = `${SITE_URL}/images/machines/machine singer.jpeg`;
+import { SITE_URL } from "@/lib/site-url";
+
+const OG_IMAGE = `${SITE_URL}/og-image.jpg`;
 
 export async function generateMetadata(): Promise<Metadata> {
   const { t } = await getI18n();
@@ -46,7 +48,10 @@ export default async function RootLayout({
     <html lang={locale}>
       <body>
         <LocaleProvider locale={locale}>
-          <ToastProvider>{children}</ToastProvider>
+          <ToastProvider>
+            {children}
+            <WhatsAppFloat />
+          </ToastProvider>
         </LocaleProvider>
       </body>
     </html>

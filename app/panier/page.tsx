@@ -1,18 +1,22 @@
 "use client";
 
 import Link from "next/link";
+import SiteHeader from "@/components/SiteHeader";
+import SiteFooter from "@/components/SiteFooter";
 import { useEffect, useState } from "react";
 import { formatPrice } from "@/lib/format";
 import { supabase } from "@/lib/supabase";
 import { useToast } from "@/components/Toast";
 import { useI18n } from "@/lib/i18n/client";
 import { tr } from "@/lib/i18n/localized";
+import PaymentBadges from "@/components/PaymentBadges";
 
 type CartItem = {
   id: string;
   name: string;
   name_en?: string | null;
   price: number;
+  stock?: number;
   quantity: number;
 };
 
@@ -67,121 +71,30 @@ export default function Panier() {
 
   const total = subtotal - discount;
 
-  /*
-   * Diminue le stock d'un produit.
-   * Utilisé lorsqu'on augmente la quantité dans le panier.
-   */
-  async function decreaseStock(productId: string, quantity = 1) {
-    const { data, error } = await supabase.rpc(
-      "decrease_product_stock",
-      {
-        p_product_id: productId,
-        p_quantity: quantity,
-      }
-    );
-
-    if (error || data === null || data === undefined) {
-      toast.show("Stock insuffisant.", "error");
-      return false;
-    }
-
-    return true;
-  }
-
-  /*
-   * Rend le stock lorsqu'un article quitte le panier.
-   */
-  async function increaseStock(productId: string, quantity = 1) {
-    const { data, error } = await supabase.rpc(
-      "increase_product_stock",
-      {
-        p_product_id: productId,
-        p_quantity: quantity,
-      }
-    );
-
-    if (error || data === null || data === undefined) {
-      toast.show(
-        "Impossible de remettre le stock à jour.",
-        "error"
-      );
-      return false;
-    }
-
-    return true;
-  }
-
-  /*
-   * Diminue la quantité d'un article.
-   *
-   * Exemple :
-   * panier = 3
-   * bouton - 
-   * panier = 2
-   * stock +1
-   */
-  async function decreaseQuantity(product: CartItem) {
+  // Le stock n'est réservé qu'au moment de la commande (create_order) :
+  // le panier ne touche jamais à la base de données.
+  function decreaseQuantity(product: CartItem) {
     if (product.quantity <= 1) return;
-
-    const success = await increaseStock(product.id, 1);
-
-    if (!success) return;
-
     save(
       cart.map((x) =>
-        x.id === product.id
-          ? {
-              ...x,
-              quantity: x.quantity - 1,
-            }
-          : x
+        x.id === product.id ? { ...x, quantity: x.quantity - 1 } : x
       )
     );
   }
 
-  /*
-   * Augmente la quantité d'un article.
-   *
-   * Exemple :
-   * panier = 2
-   * bouton +
-   * stock -1
-   * panier = 3
-   */
-  async function increaseQuantity(product: CartItem) {
-    const success = await decreaseStock(product.id, 1);
-
-    if (!success) return;
-
+  function increaseQuantity(product: CartItem) {
+    if (typeof product.stock === "number" && product.quantity >= product.stock) {
+      toast.show(t.addToCart.limit(product.stock), "error");
+      return;
+    }
     save(
       cart.map((x) =>
-        x.id === product.id
-          ? {
-              ...x,
-              quantity: x.quantity + 1,
-            }
-          : x
+        x.id === product.id ? { ...x, quantity: x.quantity + 1 } : x
       )
     );
   }
 
-  /*
-   * Supprime complètement l'article du panier.
-   *
-   * Exemple :
-   * panier = 3
-   * supprimer
-   * stock +3
-   * article retiré du panier
-   */
-  async function removeProduct(product: CartItem) {
-    const success = await increaseStock(
-      product.id,
-      product.quantity
-    );
-
-    if (!success) return;
-
+  function removeProduct(product: CartItem) {
     save(cart.filter((x) => x.id !== product.id));
   }
 
@@ -233,6 +146,8 @@ export default function Panier() {
   }
 
   return (
+    <>
+    <SiteHeader />
     <main className="min-h-screen bg-[#faf8f4] px-6 py-16">
       <div className="mx-auto max-w-5xl">
 
@@ -393,10 +308,14 @@ export default function Panier() {
                 {t.cart.checkout}
               </Link>
 
+              <PaymentBadges className="mt-5 justify-center text-white" />
+
             </div>
           </>
         )}
       </div>
     </main>
+    <SiteFooter />
+    </>
   );
 }

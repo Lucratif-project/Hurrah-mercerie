@@ -4,6 +4,11 @@ import ContactForm from "@/components/ContactForm";
 import { SITE_CONTACT } from "@/lib/site-config";
 import { getI18n } from "@/lib/i18n/server";
 
+export async function generateMetadata() {
+  const { t } = await getI18n();
+  return { title: t.contact.title, description: t.contact.intro };
+}
+
 export default async function Contact() {
   const { t } = await getI18n();
 

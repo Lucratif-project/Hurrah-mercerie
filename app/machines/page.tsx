@@ -9,6 +9,11 @@ const items = [
   { key: "butterfly", href: "/machines/butterfly", image: "/images/machines/machine butterfly.jpeg" },
 ] as const;
 
+export async function generateMetadata() {
+  const { t } = await getI18n();
+  return { title: t.machines.title, description: t.machines.intro };
+}
+
 export default async function Machines() {
   const { t, locale } = await getI18n();
 

@@ -1,13 +1,15 @@
 "use client";
 
 import Image from "next/image";
+import { useState } from "react";
 import Link from "next/link";
 import AddToCart from "./AddToCart";
 import StockBadge from "./StockBadge";
 import WishlistButton from "./WishlistButton";
 import QuickView from "./QuickView";
 import { formatPrice } from "@/lib/format";
-import { getPlaceholder } from "@/lib/placeholder";
+import { getProductVisual } from "@/lib/productVisual";
+import { isTrustedImage } from "@/lib/images";
 import { useI18n } from "@/lib/i18n/client";
 import { tr } from "@/lib/i18n/localized";
 import type { Product } from "@/lib/types";
@@ -18,7 +20,9 @@ export default function ProductCard({
   product: Product;
 }) {
   const { t, locale } = useI18n();
-  const image = product.image_url;
+  // Si la photo ne se charge pas, on affiche l'illustration à la place.
+  const [broken, setBroken] = useState(false);
+  const image = broken ? null : product.image_url;
   const name = tr(product, "name", locale);
   const description = tr(product, "description", locale);
 
@@ -32,12 +36,14 @@ export default function ProductCard({
                 src={image}
                 alt={name}
                 fill
+                unoptimized={!isTrustedImage(image)}
+                onError={() => setBroken(true)}
                 className="object-contain p-6 transition duration-300 group-hover:scale-110"
                 sizes="(max-width: 768px) 100vw, 33vw"
               />
             ) : (
               <img
-                src={getPlaceholder(locale)}
+                src={getProductVisual(product, locale)}
                 alt={name}
                 className="h-full w-full object-contain p-6 transition duration-300 group-hover:scale-110"
               />

@@ -6,8 +6,8 @@ import CatalogueFilters from "@/components/CatalogueFilters";
 import { supabase } from "@/lib/supabase";
 import { getI18n } from "@/lib/i18n/server";
 import { tr } from "@/lib/i18n/localized";
+import { getCategoryImage } from "@/lib/productVisual";
 
-const FALLBACK_IMAGE = "/images/categories/fils.jpeg";
 
 type Props = {
   searchParams: Promise<{
@@ -16,6 +16,11 @@ type Props = {
     disponibilite?: string;
   }>;
 };
+
+export async function generateMetadata() {
+  const { t } = await getI18n();
+  return { title: t.catalogue.title, description: t.catalogue.intro };
+}
 
 export default async function CataloguePage({ searchParams }: Props) {
   const params = await searchParams;
@@ -34,7 +39,8 @@ export default async function CataloguePage({ searchParams }: Props) {
   const categories = (categoriesData || []).map((c) => ({
     name: c.name as string,
     label: tr(c, "name", locale),
-    image: c.image_url || FALLBACK_IMAGE,
+    // Photo choisie dans Admin > Catégories, sinon une image propre à la catégorie.
+    image: c.image_url || getCategoryImage(c.name),
   }));
 
   const selectedLabel =
@@ -186,7 +192,11 @@ export default async function CataloguePage({ searchParams }: Props) {
                     <img
                       src={category.image}
                       alt={category.label}
-                      className="h-64 w-full object-cover transition duration-300 group-hover:scale-105"
+                      className={`h-64 w-full transition duration-300 group-hover:scale-105 ${
+                        category.image.includes("/machines/")
+                          ? "bg-white object-contain p-4"
+                          : "object-cover"
+                      }`}
                     />
 
                     <div className="p-6">

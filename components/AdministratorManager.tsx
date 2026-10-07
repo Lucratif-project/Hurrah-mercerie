@@ -8,12 +8,21 @@ type Admin = {
   id: string;
   email: string | null;
   created_at: string;
+  is_owner?: boolean;
 };
+
+function explain(message: string) {
+  if (message.includes("last_owner")) return "Impossible : il doit rester au moins un administrateur principal.";
+  if (message.includes("row-level security")) return "Seul l'administrateur principal peut gérer les administrateurs.";
+  return message;
+}
 
 export default function AdministratorManager({
   admins,
+  isOwner,
 }: {
   admins: Admin[];
+  isOwner: boolean;
 }) {
   const toast = useToast();
   const [uid, setUid] = useState("");
@@ -39,7 +48,7 @@ export default function AdministratorManager({
     setBusy(false);
 
     if (error) {
-      setMessage(error.message);
+      setMessage(explain(error.message));
       return;
     }
 
@@ -64,15 +73,38 @@ export default function AdministratorManager({
       .eq("id", admin.id);
 
     if (error) {
-      toast.show(error.message, "error");
+      toast.show(explain(error.message), "error");
       return;
     }
 
     window.location.reload();
   }
 
+  async function setOwner(admin: Admin, value: boolean) {
+    const ok = window.confirm(
+      value
+        ? `Donner le rôle d'administrateur principal à ${admin.email || admin.id} ? Il pourra gérer les administrateurs et voir le journal de sécurité.`
+        : `Retirer le rôle d'administrateur principal à ${admin.email || admin.id} ?`
+    );
+    if (!ok) return;
+
+    const { error } = await supabase.from("admin_users").update({ is_owner: value }).eq("id", admin.id);
+    if (error) {
+      toast.show(explain(error.message), "error");
+      return;
+    }
+    window.location.reload();
+  }
+
   return (
     <div className="space-y-8">
+      {!isOwner && (
+        <p className="rounded-3xl bg-amber-50 p-5 text-sm font-semibold text-amber-800">
+          Seul l&apos;administrateur principal peut ajouter ou retirer des administrateurs.
+        </p>
+      )}
+
+      {isOwner && (
       <form onSubmit={addAdmin} className="rounded-3xl bg-white p-7 shadow-sm">
         <h2 className="text-2xl font-black">Ajouter un administrateur</h2>
 
@@ -108,6 +140,7 @@ export default function AdministratorManager({
           {busy ? "Ajout…" : "Ajouter"}
         </button>
       </form>
+      )}
 
       <div className="rounded-3xl bg-white p-7 shadow-sm">
         <h2 className="text-2xl font-black">Administrateurs actuels</h2>
@@ -122,17 +155,35 @@ export default function AdministratorManager({
                 className="flex items-center justify-between gap-4 rounded-2xl border p-4"
               >
                 <div>
-                  <p className="font-bold">{admin.email || "Sans e-mail"}</p>
+                  <p className="font-bold">
+                    {admin.email || "Sans e-mail"}
+                    {admin.is_owner && (
+                      <span className="ml-2 rounded-full bg-neutral-950 px-2 py-0.5 text-[10px] font-bold text-white">
+                        Principal
+                      </span>
+                    )}
+                  </p>
                   <p className="text-xs text-neutral-400">{admin.id}</p>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() => removeAdmin(admin)}
-                  className="rounded-full border border-red-200 px-4 py-2 text-xs font-bold text-red-600 hover:bg-red-50"
-                >
-                  Retirer
-                </button>
+                {isOwner && (
+                  <div className="flex flex-wrap justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setOwner(admin, !admin.is_owner)}
+                      className="rounded-full border px-4 py-2 text-xs font-bold hover:bg-neutral-50"
+                    >
+                      {admin.is_owner ? "Retirer « principal »" : "Rendre principal"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => removeAdmin(admin)}
+                      className="rounded-full border border-red-200 px-4 py-2 text-xs font-bold text-red-600 hover:bg-red-50"
+                    >
+                      Retirer
+                    </button>
+                  </div>
+                )}
               </div>
             ))
           )}

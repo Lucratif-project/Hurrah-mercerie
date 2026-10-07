@@ -3,94 +3,70 @@
 import { useState } from "react";
 import type { Product } from "@/lib/types";
 import { useI18n } from "@/lib/i18n/client";
-import { supabase } from "@/lib/supabase";
 
+type CartLine = Product & { quantity: number };
+
+/**
+ * Ajoute un produit au panier (stocké dans le navigateur).
+ * Le stock n'est PAS retiré ici : il est réservé uniquement quand la
+ * commande est validée (fonction create_order côté serveur). Sinon un
+ * panier abandonné bloquerait le stock pour toujours.
+ */
 export default function AddToCart({ product }: { product: Product }) {
   const { t } = useI18n();
-
-  const [remainingStock, setRemainingStock] = useState(product.stock);
   const [done, setDone] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [limit, setLimit] = useState(false);
 
-  async function add() {
-    if (remainingStock <= 0 || loading) return;
+  function add() {
+    if (product.stock <= 0) return;
 
-    setLoading(true);
-    setError("");
+    let cart: CartLine[] = [];
+    try {
+      cart = JSON.parse(localStorage.getItem("hurrah-cart") || "[]");
+    } catch {
+      cart = [];
+    }
 
-    // Diminue réellement le stock dans Supabase
-    const { data: newStock, error: stockError } = await supabase.rpc(
-      "decrease_product_stock",
-      {
-        p_product_id: product.id,
-        p_quantity: 1,
-      }
-    );
+    const existing = cart.find((item) => item.id === product.id);
+    const inCart = existing?.quantity ?? 0;
 
-    if (stockError || newStock === null || newStock === undefined) {
-      setError("Stock insuffisant ou produit indisponible.");
-      setLoading(false);
+    // On ne laisse pas mettre plus d'articles que le stock affiché.
+    if (inCart >= product.stock) {
+      setLimit(true);
+      setTimeout(() => setLimit(false), 2000);
       return;
     }
 
-    // Ajout au panier local
-    const raw = localStorage.getItem("hurrah-cart");
-    const cart = raw ? JSON.parse(raw) : [];
-
-    const existing = cart.find(
-      (item: Product & { quantity: number }) =>
-        item.id === product.id
-    );
-
     if (existing) {
       existing.quantity += 1;
+      existing.stock = product.stock;
     } else {
-      cart.push({
-        ...product,
-        quantity: 1,
-      });
+      cart.push({ ...product, quantity: 1 });
     }
 
     localStorage.setItem("hurrah-cart", JSON.stringify(cart));
-
-    // Mise à jour immédiate de l'affichage
-    setRemainingStock(Number(newStock));
-    setDone(true);
-    setLoading(false);
-
     window.dispatchEvent(new Event("hurrah-cart-updated"));
-
-    setTimeout(() => {
-      setDone(false);
-    }, 1600);
+    setDone(true);
+    setTimeout(() => setDone(false), 1600);
   }
 
   return (
     <div>
       <button
         onClick={add}
-        disabled={remainingStock <= 0 || loading}
+        disabled={product.stock <= 0}
         className="w-full rounded-full bg-neutral-950 px-5 py-3 text-sm font-bold text-white transition hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-40"
       >
-        {remainingStock <= 0
+        {product.stock <= 0
           ? t.addToCart.out
-          : loading
-            ? "Ajout..."
-            : done
-              ? t.addToCart.added
-              : t.addToCart.add}
+          : done
+            ? t.addToCart.added
+            : t.addToCart.add}
       </button>
 
-      <p className="mt-2 text-center text-sm font-semibold text-neutral-500">
-        {remainingStock > 0
-          ? `${remainingStock} en stock`
-          : t.addToCart.out}
-      </p>
-
-      {error && (
-        <p className="mt-2 text-center text-sm font-semibold text-red-600">
-          {error}
+      {limit && (
+        <p className="mt-2 text-center text-xs font-semibold text-amber-600">
+          {t.addToCart.limit(product.stock)}
         </p>
       )}
     </div>

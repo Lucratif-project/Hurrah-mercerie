@@ -34,7 +34,7 @@ export default function LanguageSwitcher({
     <div
       role="group"
       aria-label={t.language.label}
-      className={`flex items-center rounded-full border p-0.5 text-xs font-bold ${
+      className={`inline-flex w-fit items-center rounded-full border p-0.5 text-xs font-bold ${
         variant === "dark" ? "border-white/20" : "border-neutral-200"
       } ${pending ? "opacity-60" : ""}`}
     >

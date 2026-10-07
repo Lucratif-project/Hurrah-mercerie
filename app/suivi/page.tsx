@@ -7,12 +7,16 @@ import { supabase } from "@/lib/supabase";
 import { formatPrice } from "@/lib/format";
 import { useI18n } from "@/lib/i18n/client";
 import { formatDate } from "@/lib/i18n/config";
+import { usePaymentLabel } from "@/components/PaymentBadges";
+import { isPaymentMethod } from "@/lib/payments";
 
 type Order = {
   order_number: number;
   status: string;
   total: number;
   created_at: string;
+  payment_method?: string;
+  paid?: boolean;
   items: { product_name: string; quantity: number; price: number }[];
 };
 
@@ -20,6 +24,7 @@ export default function SuiviCommande() {
   const { t, locale } = useI18n();
   const [phone, setPhone] = useState("");
   const [orderNumber, setOrderNumber] = useState("");
+  const paymentLabel = usePaymentLabel();
   const [orders, setOrders] = useState<Order[] | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -95,6 +100,14 @@ export default function SuiviCommande() {
             {(orders || []).map((order) => (
               <div key={order.order_number} className="rounded-3xl bg-white p-6 shadow-sm">
                 <p className="mb-3 font-black">{t.tracking.orderLabel(String(order.order_number))}</p>
+                {isPaymentMethod(order.payment_method) && (
+                  <p className="mb-3 text-sm text-neutral-600">
+                    {t.payment.method} : <b>{paymentLabel(order.payment_method)}</b> ·{" "}
+                    <span className={order.paid ? "font-bold text-emerald-600" : "font-bold text-amber-600"}>
+                      {order.paid ? t.payment.paid : t.payment.unpaid}
+                    </span>
+                  </p>
+                )}
                 <div className="flex items-center justify-between">
                   <span className="rounded-full bg-orange-50 px-3 py-1 text-xs font-bold text-orange-700">
                     {t.tracking.status[order.status] || order.status}

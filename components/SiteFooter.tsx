@@ -4,6 +4,7 @@ import Link from "next/link";
 import { SITE_CONTACT, buildWhatsAppLink } from "@/lib/site-config";
 import { useI18n } from "@/lib/i18n/client";
 import LanguageSwitcher from "./LanguageSwitcher";
+import PaymentBadges from "./PaymentBadges";
 
 export default function SiteFooter() {
   const { t } = useI18n();
@@ -49,10 +50,17 @@ export default function SiteFooter() {
           >
             {t.footer.whatsappButton}
           </a>
+          <PaymentBadges className="mt-6 text-white" />
         </div>
       </div>
-      <div className="mx-auto mt-12 max-w-7xl border-t border-white/10 pt-6 text-xs text-white/40">
-        © {new Date().getFullYear()} Hurrah Mercerie. {t.footer.rights}
+      <div className="mx-auto mt-12 flex max-w-7xl flex-col gap-4 border-t border-white/10 pt-6 text-xs text-white/40 sm:flex-row sm:items-center sm:justify-between">
+        <span>© {new Date().getFullYear()} Hurrah Mercerie. {t.footer.rights}</span>
+        <nav className="flex flex-wrap gap-x-5 gap-y-2">
+          <Link className="hover:text-white" href="/livraison-retours">{t.footer.legal.delivery}</Link>
+          <Link className="hover:text-white" href="/conditions-de-vente">{t.footer.legal.terms}</Link>
+          <Link className="hover:text-white" href="/confidentialite">{t.footer.legal.privacy}</Link>
+          <Link className="hover:text-white" href="/mentions-legales">{t.footer.legal.notice}</Link>
+        </nav>
       </div>
     </footer>
   );

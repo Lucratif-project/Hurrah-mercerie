@@ -3,6 +3,11 @@ import SiteHeader from "@/components/SiteHeader";
 import { createClient } from "@/lib/supabase/server";
 import { formatPrice } from "@/lib/format";
 
+// Heure actuelle (pages rendues à chaque visite, côté serveur).
+function nowMs() {
+  return Date.now();
+}
+
 const MODULES = [
   ["Produits", "/admin/products"],
   ["Catégories", "/admin/categories"],
@@ -50,6 +55,19 @@ export default async function Admin() {
         .eq("approved", false),
     ]);
 
+  // Journal de sécurité : visible uniquement par l'administrateur principal.
+  const { data: isOwner } = await supabase.rpc("is_owner");
+  let failedLogins24h = 0;
+  if (isOwner) {
+    const { count } = await supabase
+      .from("login_attempts")
+      .select("id", { count: "exact", head: true })
+      .eq("success", false)
+      .gte("created_at", new Date(nowMs() - 86400_000).toISOString());
+    failedLogins24h = count || 0;
+  }
+  const modules = isOwner ? [...MODULES, ["Sécurité", "/admin/securite"]] : MODULES;
+
   const monthRevenue = (monthOrders || []).reduce((s, o) => s + (o.total || 0), 0);
   const monthCount = (monthOrders || []).length;
 
@@ -91,6 +109,15 @@ export default async function Admin() {
               </p>
             </div>
           </div>
+
+          {isOwner && failedLogins24h >= 5 && (
+            <Link
+              href="/admin/securite?filtre=echecs"
+              className="mt-8 block rounded-3xl bg-red-50 p-5 font-bold text-red-700 hover:bg-red-100"
+            >
+              ⚠ {failedLogins24h} tentatives de connexion échouées en 24 h → voir le journal de sécurité
+            </Link>
+          )}
 
           {(pendingReviews || 0) > 0 && (
             <Link
@@ -140,7 +167,7 @@ export default async function Admin() {
           )}
 
           <div className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
-            {MODULES.map(([name, href]) => (
+            {modules.map(([name, href]) => (
               <Link
                 key={name}
                 href={href}

@@ -7,6 +7,7 @@ import ProductCard from "@/components/ProductCard";
 import { supabase } from "@/lib/supabase";
 import { getI18n } from "@/lib/i18n/server";
 import { formatPrice } from "@/lib/format";
+import { isTrustedImage } from "@/lib/images";
 
 // Les liens gardent le nom français de la catégorie (utilisé par le filtre du catalogue).
 const categoryLinks = [
@@ -24,7 +25,19 @@ export default async function Home() {
   const { t, locale } = await getI18n();
   const h = t.home;
 
-  const categories = categoryLinks.map((c, i) => ({ ...c, ...h.categories[i] }));
+  // Si une photo a été ajoutée à la catégorie dans l'admin, elle remplace l'image par défaut.
+  const { data: categoryRows } = await supabase
+    .from("categories")
+    .select("name, image_url")
+    .in("name", ["Fils & Laines", "Duchesse", "Boutons"]);
+  const categoryImage = (href: string) =>
+    (categoryRows || []).find((c) => href.endsWith(encodeURIComponent(c.name)))?.image_url;
+
+  const categories = categoryLinks.map((c, i) => ({
+    ...c,
+    ...h.categories[i],
+    image: categoryImage(c.href) || c.image,
+  }));
   const machines = machineLinks.map((m) => ({ ...m, ...t.machines.items[m.key] }));
 
   const { data: featuredData } = await supabase
@@ -62,7 +75,7 @@ export default async function Home() {
             </div>
           </div>
           <div className="relative h-[500px] overflow-hidden rounded-[2rem] shadow-2xl lg:h-[610px]">
-            <Image src="/images/machines/machine singer.jpeg" alt={h.heroImageAlt} fill priority className="object-cover transition duration-700 hover:scale-105" sizes="(max-width: 1024px) 100vw, 50vw" />
+            <Image src="/images/machines/machine butterfly.jpeg" alt={h.heroImageAlt} fill loading="eager" fetchPriority="high" className="bg-white object-contain p-6 pb-32 transition duration-700 hover:scale-105" sizes="(max-width: 1024px) 100vw, 50vw" />
             <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
             <div className="absolute bottom-7 left-7 right-7 rounded-2xl border border-white/20 bg-black/40 p-5 text-white backdrop-blur-md"><p className="text-xs font-semibold uppercase tracking-[0.2em] text-white/70">Hurrah Mercerie</p><p className="mt-2 text-xl font-bold">{h.heroCard}</p></div>
           </div>
@@ -74,7 +87,7 @@ export default async function Home() {
           <p className="text-sm font-bold uppercase tracking-[0.25em] text-orange-600">{h.universesEyebrow}</p>
           <h2 className="mt-3 text-4xl font-black tracking-tight sm:text-5xl">{h.universesTitle}</h2>
           <div className="mt-12 grid gap-6 md:grid-cols-3">
-            {categories.map((category) => <Link href={category.href} key={category.href} className="group relative h-[420px] overflow-hidden rounded-[1.75rem] bg-neutral-200"><Image src={category.image} alt={category.name} fill className="object-cover transition duration-700 group-hover:scale-110" sizes="(max-width: 768px) 100vw, 33vw" /><div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/10 to-transparent" /><div className="absolute bottom-0 p-7 text-white"><h3 className="text-2xl font-black">{category.name}</h3><p className="mt-2 text-sm text-white/80">{category.description}</p><span className="mt-5 inline-block text-sm font-bold">{t.common.discoverArrow}</span></div></Link>)}
+            {categories.map((category) => <Link href={category.href} key={category.href} className="group relative h-[420px] overflow-hidden rounded-[1.75rem] bg-neutral-200"><Image src={category.image} alt={category.name} fill unoptimized={!isTrustedImage(category.image)} className="object-cover transition duration-700 group-hover:scale-110" sizes="(max-width: 768px) 100vw, 33vw" /><div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/10 to-transparent" /><div className="absolute bottom-0 p-7 text-white"><h3 className="text-2xl font-black">{category.name}</h3><p className="mt-2 text-sm text-white/80">{category.description}</p><span className="mt-5 inline-block text-sm font-bold">{t.common.discoverArrow}</span></div></Link>)}
           </div>
         </div>
       </section>

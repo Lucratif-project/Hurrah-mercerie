@@ -50,6 +50,7 @@ const fr = {
     },
     favorites: "Favoris",
     tracking: "Suivi commande",
+    menu: "Menu",
     cart: "Panier",
     discover: "Découvrir",
   },
@@ -71,7 +72,14 @@ const fr = {
     contact: "Contact",
     whatsappMessage: "Bonjour Hurrah Mercerie, j'ai une question.",
     whatsappButton: "Écrire sur WhatsApp",
+    whatsappFloat: "Une question ? Écrivez-nous sur WhatsApp",
     rights: "Tous droits réservés.",
+    legal: {
+      notice: "Mentions légales",
+      terms: "Conditions de vente",
+      delivery: "Livraison et retours",
+      privacy: "Confidentialité",
+    },
   },
 
   home: {
@@ -202,6 +210,7 @@ const fr = {
     add: "Ajouter au panier",
     added: "Ajouté au panier ✓",
     out: "Rupture de stock",
+    limit: (n: number) => `Maximum ${n} disponible${n > 1 ? "s" : ""}.`,
   },
 
   reviews: {
@@ -356,6 +365,35 @@ const fr = {
     eyebrow: "Nos créations",
     title: "Ce que nos clients réalisent",
   },
+
+  errors: {
+    notFoundTitle: "Page introuvable",
+    notFoundText: "Cette page n'existe pas ou a été déplacée. Le produit que vous cherchez est peut-être dans le catalogue.",
+    errorTitle: "Oups, un fil s'est emmêlé",
+    errorText: "Une erreur est survenue. Réessayez dans un instant ; si le problème continue, écrivez-nous sur WhatsApp.",
+    retry: "Réessayer",
+  },
+
+  payment: {
+    accepted: "Paiement accepté :",
+    cash: "Espèces à la livraison",
+    choose: "Comment souhaitez-vous payer ?",
+    method: "Paiement",
+    paid: "Payé",
+    unpaid: "Non payé",
+    momoTitle: (network: string) => `Payer avec ${network}`,
+    momoSend: (amount: string, number: string, name: string) =>
+      `Envoyez ${amount} au ${number} (${name}).`,
+    momoReference: (n: string) => `Indiquez « Commande ${n} » comme motif du transfert.`,
+    momoWait:
+      "Nous vous enverrons le numéro de paiement par WhatsApp ou par appel pour confirmer votre commande.",
+    momoConfirm:
+      "Après le transfert, envoyez-nous la capture du message de confirmation sur WhatsApp.",
+    cashInfo: "Vous payez en espèces à la livraison ou au retrait en boutique.",
+    tooMany:
+      "Vous avez déjà plusieurs commandes en cours. Contactez-nous sur WhatsApp pour en ajouter une autre.",
+    badPhone: "Numéro de téléphone invalide (8 chiffres minimum).",
+  },
 };
 
 export type Dictionary = typeof fr;
@@ -405,6 +443,7 @@ const en: Dictionary = {
     },
     favorites: "Wishlist",
     tracking: "Track order",
+    menu: "Menu",
     cart: "Cart",
     discover: "Discover",
   },
@@ -426,7 +465,14 @@ const en: Dictionary = {
     contact: "Contact",
     whatsappMessage: "Hello Hurrah Mercerie, I have a question.",
     whatsappButton: "Message us on WhatsApp",
+    whatsappFloat: "A question? Message us on WhatsApp",
     rights: "All rights reserved.",
+    legal: {
+      notice: "Legal notice",
+      terms: "Terms of sale",
+      delivery: "Delivery and returns",
+      privacy: "Privacy",
+    },
   },
 
   home: {
@@ -557,6 +603,7 @@ const en: Dictionary = {
     add: "Add to cart",
     added: "Added to cart ✓",
     out: "Out of stock",
+    limit: (n: number) => `Only ${n} available.`,
   },
 
   reviews: {
@@ -708,6 +755,35 @@ const en: Dictionary = {
   social: {
     eyebrow: "Our creations",
     title: "What our customers make",
+  },
+
+  errors: {
+    notFoundTitle: "Page not found",
+    notFoundText: "This page doesn't exist or has moved. The product you're looking for may be in the shop.",
+    errorTitle: "Oops, a thread got tangled",
+    errorText: "Something went wrong. Please try again in a moment; if the problem continues, message us on WhatsApp.",
+    retry: "Try again",
+  },
+
+  payment: {
+    accepted: "Payment accepted:",
+    cash: "Cash on delivery",
+    choose: "How would you like to pay?",
+    method: "Payment",
+    paid: "Paid",
+    unpaid: "Unpaid",
+    momoTitle: (network: string) => `Pay with ${network}`,
+    momoSend: (amount: string, number: string, name: string) =>
+      `Send ${amount} to ${number} (${name}).`,
+    momoReference: (n: string) => `Use "Order ${n}" as the transfer reference.`,
+    momoWait:
+      "We will send you the payment number by WhatsApp or phone call to confirm your order.",
+    momoConfirm:
+      "After the transfer, send us a screenshot of the confirmation message on WhatsApp.",
+    cashInfo: "You pay in cash on delivery or when collecting in store.",
+    tooMany:
+      "You already have several orders in progress. Contact us on WhatsApp to add another one.",
+    badPhone: "Invalid phone number (at least 8 digits).",
   },
 };
 

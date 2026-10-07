@@ -8,6 +8,7 @@ export default async function Administrators() {
     .from("admin_users")
     .select("*")
     .order("created_at");
+  const { data: isOwner } = await supabase.rpc("is_owner");
 
   return (
     <main className="min-h-screen bg-[#faf8f4] px-6 py-16">
@@ -31,7 +32,7 @@ export default async function Administrators() {
         </div>
 
         <div className="mt-8">
-          <AdministratorManager admins={data || []} />
+          <AdministratorManager admins={data || []} isOwner={Boolean(isOwner)} />
         </div>
       </div>
     </main>

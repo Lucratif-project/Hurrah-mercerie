@@ -1,4 +1,7 @@
 import { notFound } from "next/navigation";
+import { cache } from "react";
+import type { Metadata } from "next";
+import { SITE_URL } from "@/lib/site-url";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { formatPrice } from "@/lib/format";
@@ -7,7 +10,7 @@ import StockBadge from "@/components/StockBadge";
 import ProductGallery from "@/components/ProductGallery";
 import ProductCard from "@/components/ProductCard";
 import ProductReviews from "@/components/ProductReviews";
-import { getPlaceholder } from "@/lib/placeholder";
+import { getProductVisual } from "@/lib/productVisual";
 import { getI18n } from "@/lib/i18n/server";
 import { tr } from "@/lib/i18n/localized";
 import SiteHeader from "@/components/SiteHeader";
@@ -15,26 +18,64 @@ import SiteFooter from "@/components/SiteFooter";
 
 type Params = { params: Promise<{ id: string }> };
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Une seule requête partagée entre la page et ses métadonnées.
+const getProduct = cache(async (id: string) => {
+  if (!UUID.test(id)) return null;
+  const { data } = await supabase
+    .from("products")
+    .select("*, product_images(image_url, display_order)")
+    .eq("id", id)
+    .maybeSingle();
+  return data;
+});
+
+function sortedImages(p: { product_images?: { image_url: string; display_order: number | null }[] }) {
+  return (p.product_images || [])
+    .slice()
+    .sort((a, b) => (a.display_order || 0) - (b.display_order || 0))
+    .map((img) => img.image_url);
+}
+
+export async function generateMetadata({ params }: Params): Promise<Metadata> {
+  const { id } = await params;
+  const { locale } = await getI18n();
+  const p = await getProduct(id);
+  if (!p) return { title: locale === "en" ? "Product not found" : "Produit introuvable" };
+
+  const name = tr(p, "name", locale);
+  const description =
+    tr(p, "description", locale) ||
+    (locale === "en" ? `${name} at Hurrah Mercerie, Cotonou.` : `${name} chez Hurrah Mercerie, Cotonou.`);
+  const image = sortedImages(p).find((src) => src.startsWith("http") || src.startsWith("/"));
+  const url = `${SITE_URL}/produits/${p.id}`;
+
+  return {
+    title: name,
+    description,
+    alternates: { canonical: url },
+    openGraph: {
+      title: `${name} — ${formatPrice(p.price, locale)}`,
+      description,
+      url,
+      type: "website",
+      ...(image ? { images: [{ url: image }] } : {}),
+    },
+  };
+}
+
 export default async function ProductPage({ params }: Params) {
   const { id } = await params;
   const { t, locale } = await getI18n();
 
-  const { data: p } = await supabase
-    .from("products")
-    .select("*, product_images(image_url, display_order)")
-    .eq("id", id)
-    .single();
+  const p = await getProduct(id);
 
   if (!p) notFound();
 
-  const images = (p.product_images || [])
-    .slice()
-    .sort(
-      (a: any, b: any) => (a.display_order || 0) - (b.display_order || 0)
-    )
-    .map((img: any) => img.image_url);
+  const images = sortedImages(p);
 
-  const mainImage = images[0] || getPlaceholder(locale);
+  const mainImage = images[0] || getProductVisual(p, locale);
   const product = { ...p, image_url: mainImage };
 
   const name = tr(p, "name", locale);
@@ -72,6 +113,28 @@ export default async function ProductPage({ params }: Params) {
 
   return (
     <>
+      <script
+        type="application/ld+json"
+        // Données structurées : Google peut afficher le prix et le stock.
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify({
+            "@context": "https://schema.org",
+            "@type": "Product",
+            name,
+            description: description || undefined,
+            sku: p.reference || undefined,
+            image: images.filter((src: string) => src.startsWith("http")),
+            brand: { "@type": "Brand", name: "Hurrah Mercerie" },
+            offers: {
+              "@type": "Offer",
+              price: p.price,
+              priceCurrency: "XOF",
+              availability: p.stock > 0 ? "https://schema.org/InStock" : "https://schema.org/OutOfStock",
+              url: `${SITE_URL}/produits/${p.id}`,
+            },
+          }).replace(/</g, "\\u003c"),
+        }}
+      />
       <SiteHeader />
 
       <main className="min-h-screen bg-[#faf8f4] px-6 py-16">
@@ -81,11 +144,11 @@ export default async function ProductPage({ params }: Params) {
           </Link>
 
           <div className="mt-8 grid gap-12 lg:grid-cols-2">
-            <ProductGallery images={images.length ? images : [mainImage]} name={name} />
+            <ProductGallery images={images.length ? images : [mainImage]} name={name} fallback={getProductVisual(p, locale)} />
 
             <div>
-              <div className="flex items-start justify-between gap-4">
-                <h1 className="text-5xl font-black">{name}</h1>
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <h1 className="text-3xl font-black sm:text-5xl">{name}</h1>
                 <StockBadge stock={p.stock} />
               </div>
 

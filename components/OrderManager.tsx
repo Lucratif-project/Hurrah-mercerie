@@ -4,6 +4,12 @@ import { useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useToast } from "./Toast";
 import { formatPrice } from "@/lib/format";
+import { PAYMENT_INFO, isPaymentMethod } from "@/lib/payments";
+
+function paymentName(m?: string | null) {
+  if (!isPaymentMethod(m)) return "—";
+  return m === "cash" ? "Espèces" : PAYMENT_INFO[m].label;
+}
 
 type OrderItem = {
   id: string;
@@ -20,6 +26,8 @@ type Order = {
   notes: string | null;
   order_number?: number | null;
   status: string;
+  payment_method?: string | null;
+  paid?: boolean | null;
   total: number;
   created_at: string;
   order_items?: OrderItem[];
@@ -68,6 +76,21 @@ export default function OrderManager({ orders }: { orders: Order[] }) {
     window.location.reload();
   }
 
+  async function togglePaid(order: Order) {
+    setBusyId(order.id);
+    const { error } = await supabase
+      .from("orders")
+      .update({ paid: !order.paid, updated_at: new Date().toISOString() })
+      .eq("id", order.id);
+    setBusyId(null);
+
+    if (error) {
+      toast.show(error.message, "error");
+      return;
+    }
+    window.location.reload();
+  }
+
   if (!orders.length) {
     return (
       <div className="rounded-3xl bg-white p-8 text-neutral-500">
@@ -77,13 +100,15 @@ export default function OrderManager({ orders }: { orders: Order[] }) {
   }
 
   function exportCsv() {
-    const header = ["N°", "Date", "Client", "Téléphone", "Statut", "Total", "Articles"];
+    const header = ["N°", "Date", "Client", "Téléphone", "Statut", "Paiement", "Payé", "Total", "Articles"];
     const rows = orders.map((o) => [
       String(o.order_number ?? ""),
       new Date(o.created_at).toLocaleString("fr-FR"),
       o.customer_name,
       o.customer_phone,
       STATUSES.find((s) => s.value === o.status)?.label || o.status,
+      paymentName(o.payment_method),
+      o.paid ? "Oui" : "Non",
       String(o.total),
       (o.order_items || []).map((i) => `${i.quantity}x ${i.product_name}`).join(" | "),
     ]);
@@ -133,6 +158,20 @@ export default function OrderManager({ orders }: { orders: Order[] }) {
                   >
                     {statusInfo.label}
                   </span>
+
+                  {isPaymentMethod(order.payment_method) && (
+                    <span className={`rounded-full px-3 py-1 text-xs font-bold ${PAYMENT_INFO[order.payment_method].badge}`}>
+                      {paymentName(order.payment_method)}
+                    </span>
+                  )}
+
+                  <span
+                    className={`rounded-full px-3 py-1 text-xs font-bold ${
+                      order.paid ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"
+                    }`}
+                  >
+                    {order.paid ? "Payé" : "Non payé"}
+                  </span>
                 </div>
 
                 <p className="mt-1 text-sm text-neutral-500">
@@ -162,6 +201,18 @@ export default function OrderManager({ orders }: { orders: Order[] }) {
 
             {isOpen && (
               <div className="mt-5 space-y-4 border-t pt-5">
+                <button
+                  type="button"
+                  onClick={() => togglePaid(order)}
+                  disabled={busyId === order.id}
+                  className={`rounded-full px-4 py-2 text-xs font-bold disabled:opacity-50 ${
+                    order.paid
+                      ? "border border-neutral-300"
+                      : "bg-emerald-600 text-white hover:bg-emerald-500"
+                  }`}
+                >
+                  {order.paid ? "Marquer comme non payé" : "Marquer comme payé"}
+                </button>
                 <div className="space-y-2">
                   {(order.order_items || []).map((item) => (
                     <div

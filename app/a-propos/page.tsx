@@ -2,6 +2,11 @@ import SiteHeader from "@/components/SiteHeader";
 import SiteFooter from "@/components/SiteFooter";
 import { getI18n } from "@/lib/i18n/server";
 
+export async function generateMetadata() {
+  const { t } = await getI18n();
+  return { title: t.about.title, description: t.about.text1 };
+}
+
 export default async function About() {
   const { t } = await getI18n();
 

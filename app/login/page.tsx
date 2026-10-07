@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { supabase } from "@/lib/supabase";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -18,27 +17,22 @@ export default function LoginPage() {
     setError("");
     setLoading(true);
 
-    const { data, error: loginError } =
-      await supabase.auth.signInWithPassword({
-        email,
-        password,
+    // La connexion passe par le serveur : chaque tentative est enregistrée
+    // dans le journal de sécurité et les attaques sont bloquées.
+    let result: { ok?: boolean; error?: string } = {};
+    try {
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
       });
-
-    if (loginError || !data.user) {
-      setError("Email ou mot de passe incorrect.");
-      setLoading(false);
-      return;
+      result = await res.json();
+    } catch {
+      result = { error: "Connexion impossible. Vérifiez votre réseau." };
     }
 
-    const { data: admin } = await supabase
-      .from("admin_users")
-      .select("id")
-      .eq("id", data.user.id)
-      .maybeSingle();
-
-    if (!admin) {
-      await supabase.auth.signOut();
-      setError("Ce compte n'est pas administrateur.");
+    if (!result.ok) {
+      setError(result.error || "Email ou mot de passe incorrect.");
       setLoading(false);
       return;
     }

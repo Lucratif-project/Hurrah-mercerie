@@ -214,6 +214,7 @@ export const fonOverrides: DeepPartial<Dictionary> = {
   },
 
   addToCart: {
+    limit: (n: number) => `${n} ɖéé wɛ ɖò.`,
     add: "Sɔ́ dó panier mɛ",
     added: "É yì panier mɛ ✓",
     out: "É vɔ",
@@ -349,5 +350,17 @@ export const fonOverrides: DeepPartial<Dictionary> = {
   social: {
     eyebrow: "Nǔ e è bló lɛ",
     title: "Nǔ e nǔxɔ̀tɔ́ mǐtɔn lɛ nɔ bló lɛ",
+  },
+
+  payment: {
+    accepted: "Ali e a sixu sú akwɛ́ gbɔn é :",
+    cash: "Sú akwɛ́ hwenu è hɛn nǔ wá é",
+    choose: "Nɛ̌ a jló na sú akwɛ́ ɔ gbɔn ?",
+    method: "Akwɛ́ súsú",
+    momoTitle: (network: string) => `Sú akwɛ́ gbɔn ${network} jí`,
+    momoSend: (amount: string, number: string, name: string) =>
+      `Sɛ́ ${amount} dó ${number} (${name}).`,
+    momoWait: "Mǐ na sɛ́ numéro e jí a na sú akwɛ́ ɖó é dó we gbɔn WhatsApp jí alǒ alokan jí.",
+    cashInfo: "A na sú akwɛ́ hwenu è hɛn nǔ lɛ wá nú we é.",
   },
 };

@@ -1,12 +1,21 @@
 "use client";
 
 import Link from "next/link";
+import SiteHeader from "@/components/SiteHeader";
+import SiteFooter from "@/components/SiteFooter";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { formatPrice } from "@/lib/format";
 import { buildWhatsAppLink } from "@/lib/site-config";
 import { useI18n } from "@/lib/i18n/client";
 import { tr } from "@/lib/i18n/localized";
+import PaymentBadges, { usePaymentLabel } from "@/components/PaymentBadges";
+import {
+  MERCHANT_NAME,
+  PAYMENT_INFO,
+  PAYMENT_METHODS,
+  type PaymentMethod,
+} from "@/lib/payments";
 
 type CartItem = {
   id: string;
@@ -22,6 +31,7 @@ type PlacedOrder = {
   discount: number;
   total: number;
   promo_code: string | null;
+  payment_method: PaymentMethod;
 };
 
 export default function Commande() {
@@ -38,6 +48,8 @@ export default function Commande() {
   const [success, setSuccess] = useState(false);
   const [busy, setBusy] = useState(false);
   const [placed, setPlaced] = useState<PlacedOrder | null>(null);
+  const [payment, setPayment] = useState<PaymentMethod>("mtn_momo");
+  const paymentLabel = usePaymentLabel();
   const [promo, setPromo] = useState<{ code: string; discount_percent: number } | null>(null);
 
   useEffect(() => {
@@ -77,6 +89,7 @@ export default function Commande() {
       `${wa.subtotal} ${formatPrice(sub, locale)}`,
       code && disc > 0 ? `${wa.code} ${code} : -${formatPrice(disc, locale)}` : "",
       `${wa.total} ${formatPrice(tot, locale)}`,
+      `${t.payment.method} : ${paymentLabel(order?.payment_method ?? payment)}`,
       "",
       `${wa.name} ${form.name || "-"}`,
       `${wa.phone} ${form.phone || "-"}`,
@@ -128,6 +141,7 @@ export default function Commande() {
       p_notes: form.notes,
       p_items: cart.map((p) => ({ product_id: p.id, quantity: p.quantity })),
       p_promo_code: promo?.code || null,
+      p_payment_method: payment,
     });
 
     setBusy(false);
@@ -138,6 +152,10 @@ export default function Commande() {
         setMsg(t.checkout.errors.stock(m.split("insufficient_stock:")[1].trim()));
       } else if (m.includes("product_unavailable")) {
         setMsg(t.checkout.errors.unavailable);
+      } else if (m.includes("too_many_orders")) {
+        setMsg(t.payment.tooMany);
+      } else if (m.includes("invalid_phone")) {
+        setMsg(t.payment.badPhone);
       } else if (m.includes("missing_fields")) {
         setMsg(t.checkout.errors.fields);
       } else {
@@ -157,6 +175,8 @@ export default function Commande() {
   }
 
   return (
+    <>
+    <SiteHeader />
     <main className="min-h-screen bg-[#faf8f4] px-6 py-16">
       <div className="mx-auto max-w-3xl">
         <Link href="/panier" className="font-bold">
@@ -177,12 +197,7 @@ export default function Commande() {
           </p>
         </div>
 
-        <div className="mt-4 flex flex-wrap items-center gap-2 text-xs font-bold text-neutral-500">
-          <span>{t.checkout.paymentAccepted}</span>
-          <span className="rounded-full bg-yellow-400 px-3 py-1.5 text-neutral-900">MTN Mobile Money</span>
-          <span className="rounded-full bg-orange-500 px-3 py-1.5 text-white">Moov Money</span>
-          <span className="rounded-full bg-emerald-600 px-3 py-1.5 text-white">{t.checkout.cashOnDelivery}</span>
-        </div>
+        <PaymentBadges className="mt-4 text-neutral-500" />
 
         {!success && (
           <form
@@ -200,6 +215,9 @@ export default function Commande() {
             <input
               required
               className="w-full rounded-2xl border px-5 py-4"
+              type="tel"
+              inputMode="tel"
+              autoComplete="tel"
               placeholder={t.checkout.phone}
               value={form.phone}
               onChange={(e) => setForm({ ...form, phone: e.target.value })}
@@ -218,6 +236,32 @@ export default function Commande() {
               value={form.notes}
               onChange={(e) => setForm({ ...form, notes: e.target.value })}
             />
+
+            <fieldset>
+              <legend className="font-black">{t.payment.choose}</legend>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                {PAYMENT_METHODS.map((m) => (
+                  <label
+                    key={m}
+                    className={`flex cursor-pointer items-center gap-3 rounded-2xl border-2 px-4 py-3 font-bold transition ${
+                      payment === m ? "border-neutral-950 bg-neutral-50" : "border-neutral-200 hover:border-neutral-400"
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="payment"
+                      value={m}
+                      checked={payment === m}
+                      onChange={() => setPayment(m)}
+                      className="accent-neutral-950"
+                    />
+                    <span className={`rounded-full px-3 py-1 text-xs ${PAYMENT_INFO[m].badge}`}>
+                      {paymentLabel(m)}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
 
             <button
               disabled={busy}
@@ -261,6 +305,8 @@ export default function Commande() {
               </div>
             )}
 
+            {placed && <PaymentInstructions order={placed} />}
+
             <p className="text-neutral-600">
               {t.checkout.successText(form.phone)}
             </p>
@@ -283,5 +329,37 @@ export default function Commande() {
         )}
       </div>
     </main>
+    <SiteFooter />
+    </>
+  );
+}
+
+function PaymentInstructions({ order }: { order: PlacedOrder }) {
+  const { t, locale } = useI18n();
+  const label = usePaymentLabel();
+  const info = PAYMENT_INFO[order.payment_method];
+
+  if (!info.mobile) {
+    return <p className="rounded-2xl bg-emerald-50 p-5 font-semibold text-emerald-800">{t.payment.cashInfo}</p>;
+  }
+
+  return (
+    <div className="space-y-2 rounded-2xl border-2 border-neutral-950 p-5 text-left">
+      <p className="font-black">
+        <span className={`mr-2 rounded-full px-3 py-1 text-xs ${info.badge}`}>{label(order.payment_method)}</span>
+        {t.payment.momoTitle(label(order.payment_method))}
+      </p>
+      {info.number ? (
+        <>
+          <p className="text-lg font-bold">
+            {t.payment.momoSend(formatPrice(order.total, locale), info.number, MERCHANT_NAME)}
+          </p>
+          <p className="text-sm text-neutral-600">{t.payment.momoReference(String(order.order_number))}</p>
+          <p className="text-sm text-neutral-600">{t.payment.momoConfirm}</p>
+        </>
+      ) : (
+        <p className="text-sm text-neutral-600">{t.payment.momoWait}</p>
+      )}
+    </div>
   );
 }

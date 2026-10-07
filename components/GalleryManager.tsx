@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useToast } from "./Toast";
+import ImageUploadButton from "./ImageUploadButton";
 
 type Post = {
   id: string;
@@ -62,13 +63,21 @@ export default function GalleryManager({ posts }: { posts: Post[] }) {
         <h2 className="text-2xl font-black">Ajouter une photo</h2>
 
         <div className="mt-6 space-y-4">
-          <input
-            required
-            value={imageUrl}
-            onChange={(e) => setImageUrl(e.target.value)}
-            placeholder="URL de la photo"
-            className="w-full rounded-2xl border px-5 py-4"
-          />
+          <div className="space-y-2">
+            <div className="flex items-center gap-3">
+              <ImageUploadButton folder="galerie" onUploaded={(url) => setImageUrl(url)} />
+              {imageUrl && (
+                <img src={imageUrl} alt="" className="h-12 w-12 rounded-lg object-cover" />
+              )}
+            </div>
+            <input
+              required
+              value={imageUrl}
+              onChange={(e) => setImageUrl(e.target.value)}
+              placeholder="…ou coller l'adresse d'une image"
+              className="w-full rounded-2xl border px-5 py-4"
+            />
+          </div>
 
           <input
             value={caption}

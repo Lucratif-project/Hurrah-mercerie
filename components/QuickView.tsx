@@ -5,7 +5,7 @@ import Link from "next/link";
 import AddToCart from "./AddToCart";
 import StockBadge from "./StockBadge";
 import { formatPrice } from "@/lib/format";
-import { getPlaceholder } from "@/lib/placeholder";
+import { getProductVisual } from "@/lib/productVisual";
 import { useI18n } from "@/lib/i18n/client";
 import { tr } from "@/lib/i18n/localized";
 import type { Product } from "@/lib/types";
@@ -13,7 +13,7 @@ import type { Product } from "@/lib/types";
 export default function QuickView({ product }: { product: Product }) {
   const { t, locale } = useI18n();
   const [open, setOpen] = useState(false);
-  const image = product.image_url || getPlaceholder(locale);
+  const image = product.image_url || getProductVisual(product, locale);
   const name = tr(product, "name", locale);
   const description = tr(product, "description", locale);
 
@@ -52,6 +52,10 @@ export default function QuickView({ product }: { product: Product }) {
               <img
                 src={image}
                 alt={name}
+                onError={(e) => {
+                  const fallback = getProductVisual(product, locale);
+                  if (e.currentTarget.src !== fallback) e.currentTarget.src = fallback;
+                }}
                 className="h-full w-full object-contain p-6"
               />
             </div>
